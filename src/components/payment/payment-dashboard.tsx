@@ -12,6 +12,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { useToast } from "@/components/ui/use-toast";
 import { DeviceList } from "../bluetooth/device-list";
 import { BluetoothStatusIndicator } from "../bluetooth/status-indicator";
+import { PaymentRoleSelector } from "./role-selector";
 
 export function PaymentDashboard() {
     const [isConnected, setIsConnected] = useState(false);
@@ -41,6 +42,7 @@ export function PaymentDashboard() {
             <BluetoothStatusIndicator />
 
             <div className="grid gap-6 md:grid-cols-2">
+                <PaymentRoleSelector />
                 <DeviceList />
                 <Card>
                     <CardHeader>

@@ -1,17 +1,21 @@
 // src/lib/bluetooth/service.ts
 import { Token } from '@/types';
 import { PaymentProtocol } from './protocol';
+import { PairingRole, PairingState } from '@/types/bluetooth';
 
 export interface BluetoothDeviceInfo {
     id: string;
     name: string | null;
     connected: boolean;
+    role?: PairingRole;
 }
 
 export interface BluetoothServiceEvents {
     connectionChange: boolean;
     deviceDisconnected: BluetoothDeviceInfo;
     deviceDiscovered: BluetoothDeviceInfo;
+    roleChange: PairingRole;
+    paymentReceived: Token;
 }
 
 export class BluetoothService {
@@ -19,47 +23,38 @@ export class BluetoothService {
     private server: BluetoothRemoteGATTServer | null = null;
     private listeners: Map<string, Function[]> = new Map();
     private discoveredDevices: Set<BluetoothDevice> = new Set();
+    private currentRole: PairingRole = PairingRole.NONE;
 
     async connect(): Promise<void> {
         try {
-            // Check if Bluetooth is available
             if (!navigator.bluetooth) {
-                throw new Error('Bluetooth is not available. Make sure you are using a compatible browser and have enabled the Web Bluetooth API.');
+                throw new Error('Bluetooth is not available');
             }
 
-            // Request device with better error handling
-            try {
-                this.device = await navigator.bluetooth.requestDevice({
-                    filters: [{
-                        services: [PaymentProtocol.SERVICE_UUID]
-                    }],
-                    optionalServices: [] // Add any optional services here
-                });
-            } catch (error) {
-                if ((error as Error).name === 'NotFoundError') {
-                    throw new Error('No compatible Bluetooth devices found. Make sure your device has Bluetooth enabled and is in range.');
-                } else if ((error as Error).name === 'SecurityError') {
-                    throw new Error('Bluetooth permission denied. Please allow Bluetooth access when prompted.');
-                } else {
-                    throw new Error(`Failed to connect: ${(error as Error).message}`);
-                }
-            }
+            this.device = await navigator.bluetooth.requestDevice({
+                filters: [{
+                    services: [PaymentProtocol.SERVICE_UUID]
+                }],
+                optionalServices: [
+                    PaymentProtocol.TOKEN_CHAR_UUID,
+                    PaymentProtocol.APPROVAL_CHAR_UUID
+                ]
+            });
 
-            // Connect to the device
-            try {
-                const gattServer = await this.device.gatt?.connect();
-                this.server = gattServer ?? null;
-                if (!this.server) {
-                    throw new Error('Failed to connect to device');
-                }
-            } catch (error) {
-                throw new Error(`Failed to establish GATT connection: ${(error as Error).message}`);
+            const gattServer = await this.device.gatt?.connect();
+            this.server = gattServer ?? null;
+
+            if (!this.server) {
+                throw new Error('Failed to connect to device');
             }
 
             this.emit('connectionChange', true);
-            await this.setupNotifications();
 
-            // Add disconnect listener
+            // Set up appropriate listeners based on role
+            if (this.currentRole === PairingRole.RECEIVER) {
+                await this.setupPaymentReceiver();
+            }
+
             this.device.addEventListener('gattserverdisconnected', () => {
                 this.handleDisconnect();
             });
@@ -68,6 +63,40 @@ export class BluetoothService {
             this.emit('connectionChange', false);
             throw error;
         }
+    }
+
+
+    // Start advertising as a receiver
+    async advertiseAsReceiver(): Promise<void> {
+        if (this.currentRole !== PairingRole.NONE) {
+            throw new Error('Already in a different role');
+        }
+
+        this.currentRole = PairingRole.RECEIVER;
+        this.emit('roleChange', PairingRole.RECEIVER);
+
+        // Set up characteristic for receiving payments
+        await this.setupPaymentReceiver();
+    }
+
+    // Start scanning as an emitter
+    async startAsEmitter(): Promise<void> {
+        if (this.currentRole !== PairingRole.NONE) {
+            throw new Error('Already in a different role');
+        }
+
+        this.currentRole = PairingRole.EMITTER;
+        this.emit('roleChange', PairingRole.EMITTER);
+
+        // Start scanning for receivers
+        await this.startScanning();
+    }
+
+    // Reset role
+    async resetRole(): Promise<void> {
+        await this.disconnect();
+        this.currentRole = PairingRole.NONE;
+        this.emit('roleChange', PairingRole.NONE);
     }
 
     // Check if Bluetooth is available and enabled
@@ -133,6 +162,22 @@ export class BluetoothService {
             console.error('Error connecting to device:', error);
             throw error;
         }
+    }
+
+    private async setupPaymentReceiver(): Promise<void> {
+        if (!this.server) return;
+
+        const service = await this.server.getPrimaryService(PaymentProtocol.SERVICE_UUID);
+        const characteristic = await service.getCharacteristic(PaymentProtocol.TOKEN_CHAR_UUID);
+
+        await characteristic.startNotifications();
+        characteristic.addEventListener('characteristicvaluechanged', (event) => {
+            const value = (event.target as BluetoothRemoteGATTCharacteristic).value;
+            if (!value) return;
+
+            const token = PaymentProtocol.decodeToken(value.buffer as ArrayBuffer);
+            this.emit('paymentReceived', token);
+        });
     }
 
     // Disconnect from current device
@@ -211,11 +256,16 @@ export class BluetoothService {
         }
     }
 
+    getCurrentRole(): PairingRole {
+        return this.currentRole;
+    }
+
     private deviceToInfo(device: BluetoothDevice): BluetoothDeviceInfo {
         return {
             id: device.id,
             name: device.name || 'Unknown Device',
-            connected: device.gatt?.connected || false
+            connected: device.gatt?.connected || false,
+            role: this.currentRole
         };
     }
 
