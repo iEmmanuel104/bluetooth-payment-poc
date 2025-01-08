@@ -1,3 +1,5 @@
+import { BluetoothDeviceInfo } from "@/lib/bluetooth/service";
+
 // src/types/index.ts
 export interface Token {
     id: string;

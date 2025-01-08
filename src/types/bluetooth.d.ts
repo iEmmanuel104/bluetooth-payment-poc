@@ -18,14 +18,14 @@ interface Bluetooth {
     getAvailability(): Promise<boolean>;
 }
 
-interface RequestDeviceOptions {
-    filters: Array<{
-        services?: BluetoothServiceUUID[];
-        name?: string;
-        namePrefix?: string;
-        manufacturerId?: number;
-        serviceData?: { [key: string]: DataView };
-    }>;
-    optionalServices?: BluetoothServiceUUID[];
-    acceptAllDevices?: boolean;
-}
+// interface RequestDeviceOptions {
+//     filters: Array<{
+//         services?: BluetoothServiceUUID[];
+//         name?: string;
+//         namePrefix?: string;
+//         manufacturerId?: number;
+//         serviceData?: { [key: string]: DataView };
+//     }>;
+//     optionalServices?: BluetoothServiceUUID[];
+//     acceptAllDevices?: boolean;
+// }
