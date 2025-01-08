@@ -1,15 +1,15 @@
-// src/components/payment/token-list.tsx
-"use client";
-
-import { useEffect, useState } from "react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import React, { useEffect, useState } from "react";
+import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Token } from "@/types";
 import { Database } from "@/lib/db";
+import { useBluetoothService } from "@/lib/hooks/use-bluetooth";
+import { PairingRole } from "@/types/bluetooth";
 
 const db = new Database();
 
 export function TokenList() {
     const [tokens, setTokens] = useState<Token[]>([]);
+    const { currentRole } = useBluetoothService();
 
     useEffect(() => {
         const loadTokens = async () => {
@@ -21,10 +21,22 @@ export function TokenList() {
         loadTokens();
     }, []);
 
+    // Show different titles based on the role
+    const getTitle = () => {
+        switch (currentRole) {
+            case PairingRole.EMITTER:
+                return "Sent Payments";
+            case PairingRole.RECEIVER:
+                return "Received Payments";
+            default:
+                return "Transaction History";
+        }
+    };
+
     return (
         <Card>
             <CardHeader>
-                <CardTitle>Transaction History</CardTitle>
+                <CardTitle>{getTitle()}</CardTitle>
             </CardHeader>
             <CardContent>
                 <div className="space-y-4">

@@ -1,30 +1,53 @@
-// src/components/payment/role-selector.tsx
 import React, { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { useBluetoothService } from "@/lib/hooks/use-bluetooth";
 import { PairingRole } from "@/types/bluetooth";
-import { SendIcon, DownloadIcon, XIcon } from "lucide-react";
+import { SendIcon, DownloadIcon, XIcon, Loader2 } from "lucide-react";
+import { useToast } from "@/components/ui/use-toast";
 
 export function PaymentRoleSelector() {
     const [isChangingRole, setIsChangingRole] = useState(false);
-    const { bluetoothService } = useBluetoothService();
-    const currentRole = bluetoothService?.getCurrentRole() || PairingRole.NONE;
+    const { bluetoothService, currentRole } = useBluetoothService();
+    const { toast } = useToast();
 
     const handleRoleChange = async (role: PairingRole) => {
-        if (!bluetoothService) return;
+        if (!bluetoothService) {
+            toast({
+                title: "Error",
+                description: "Bluetooth service not available",
+                variant: "destructive",
+            });
+            return;
+        }
 
         setIsChangingRole(true);
         try {
+            console.log("Current role:", currentRole);
+            console.log("Changing to role:", role);
+
             await bluetoothService.resetRole();
 
             if (role === PairingRole.EMITTER) {
                 await bluetoothService.startAsEmitter();
+                toast({
+                    title: "Send Mode Active",
+                    description: "Ready to send payments",
+                });
             } else if (role === PairingRole.RECEIVER) {
                 await bluetoothService.advertiseAsReceiver();
+                toast({
+                    title: "Receive Mode Active",
+                    description: "Ready to receive payments",
+                });
             }
         } catch (error) {
             console.error("Error changing role:", error);
+            toast({
+                title: "Error",
+                description: (error as Error).message || "Failed to change payment mode",
+                variant: "destructive",
+            });
         } finally {
             setIsChangingRole(false);
         }
@@ -44,8 +67,8 @@ export function PaymentRoleSelector() {
                             disabled={isChangingRole}
                             className="flex items-center justify-center"
                         >
-                            <SendIcon className="w-4 h-4 mr-2" />
-                            Send Payment
+                            {isChangingRole ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <SendIcon className="w-4 h-4 mr-2" />}
+                            {currentRole === PairingRole.EMITTER ? "Sending Mode" : "Send Payment"}
                         </Button>
 
                         <Button
@@ -54,8 +77,8 @@ export function PaymentRoleSelector() {
                             disabled={isChangingRole}
                             className="flex items-center justify-center"
                         >
-                            <DownloadIcon className="w-4 h-4 mr-2" />
-                            Receive Payment
+                            {isChangingRole ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <DownloadIcon className="w-4 h-4 mr-2" />}
+                            {currentRole === PairingRole.RECEIVER ? "Receiving Mode" : "Receive Payment"}
                         </Button>
                     </div>
 
@@ -66,7 +89,7 @@ export function PaymentRoleSelector() {
                             disabled={isChangingRole}
                             className="flex items-center justify-center"
                         >
-                            <XIcon className="w-4 h-4 mr-2" />
+                            {isChangingRole ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <XIcon className="w-4 h-4 mr-2" />}
                             Reset Mode
                         </Button>
                     )}

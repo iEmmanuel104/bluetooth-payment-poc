@@ -68,37 +68,43 @@ export class BluetoothService {
 
     // Start advertising as a receiver
     async advertiseAsReceiver(): Promise<void> {
-        if (this.currentRole !== PairingRole.NONE) {
-            throw new Error('Already in a different role');
+        console.log('Starting as receiver...');
+        try {
+            this.currentRole = PairingRole.RECEIVER;
+            this.emit('roleChange', PairingRole.RECEIVER);
+            // Make device discoverable and wait for connections
+            await this.setupPaymentReceiver();
+        } catch (error) {
+            console.error('Error starting as receiver:', error);
+            this.currentRole = PairingRole.NONE;
+            this.emit('roleChange', PairingRole.NONE);
+            throw error;
         }
-
-        this.currentRole = PairingRole.RECEIVER;
-        this.emit('roleChange', PairingRole.RECEIVER);
-
-        // Set up characteristic for receiving payments
-        await this.setupPaymentReceiver();
     }
 
     // Start scanning as an emitter
     async startAsEmitter(): Promise<void> {
-        if (this.currentRole !== PairingRole.NONE) {
-            throw new Error('Already in a different role');
+        console.log('Starting as emitter...');
+        try {
+            this.currentRole = PairingRole.EMITTER;
+            this.emit('roleChange', PairingRole.EMITTER);
+            // Start scanning for devices to connect to
+            await this.startScanning();
+        } catch (error) {
+            console.error('Error starting as emitter:', error);
+            this.currentRole = PairingRole.NONE;
+            this.emit('roleChange', PairingRole.NONE);
+            throw error;
         }
-
-        this.currentRole = PairingRole.EMITTER;
-        this.emit('roleChange', PairingRole.EMITTER);
-
-        // Start scanning for receivers
-        await this.startScanning();
     }
 
     // Reset role
     async resetRole(): Promise<void> {
+        console.log('Resetting role...');
         await this.disconnect();
         this.currentRole = PairingRole.NONE;
         this.emit('roleChange', PairingRole.NONE);
     }
-
     // Check if Bluetooth is available and enabled
     async checkAvailability(): Promise<{ available: boolean; enabled: boolean }> {
         try {
@@ -270,6 +276,24 @@ export class BluetoothService {
     }
 
     private emit(event: string, data: any): void {
-        this.listeners.get(event)?.forEach(callback => callback(data));
+        console.log(`Emitting ${event}:`, data);
+        const listeners = this.listeners.get(event) || [];
+        listeners.forEach(callback => {
+            try {
+                callback(data);
+            } catch (error) {
+                console.error(`Error in ${event} listener:`, error);
+            }
+        });
+    }
+
+    off(event: string, callback: Function): void {
+        const listeners = this.listeners.get(event);
+        if (listeners) {
+            const index = listeners.indexOf(callback);
+            if (index > -1) {
+                listeners.splice(index, 1);
+            }
+        }
     }
 }

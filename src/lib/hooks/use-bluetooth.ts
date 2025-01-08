@@ -1,4 +1,3 @@
-// src/lib/hooks/use-bluetooth.ts
 import { useState, useEffect } from 'react';
 import { BluetoothService } from '../bluetooth/service';
 import { Token } from '@/types';
@@ -10,14 +9,37 @@ export function useBluetoothService() {
     const [isConnected, setIsConnected] = useState(false);
     const [currentRole, setCurrentRole] = useState<PairingRole>(PairingRole.NONE);
 
-    useEffect(() => {
-        bluetoothServiceInstance?.on('connectionChange', (connected: boolean) => {
-            setIsConnected(connected);
-        });
+    // Create or get the singleton instance
+    if (!bluetoothServiceInstance) {
+        bluetoothServiceInstance = new BluetoothService();
+    }
 
-        bluetoothServiceInstance?.on('roleChange', (role: PairingRole) => {
+    useEffect(() => {
+        // Set up event listeners
+        const onConnectionChange = (connected: boolean) => {
+            console.log('Connection changed:', connected);
+            setIsConnected(connected);
+        };
+
+        const onRoleChange = (role: PairingRole) => {
+            console.log('Role changed:', role);
             setCurrentRole(role);
-        });
+        };
+
+        bluetoothServiceInstance?.on('connectionChange', onConnectionChange);
+        bluetoothServiceInstance?.on('roleChange', onRoleChange);
+
+        // Get initial role
+        const initialRole = bluetoothServiceInstance?.getCurrentRole() || PairingRole.NONE;
+        setCurrentRole(initialRole);
+
+        // Cleanup listeners on unmount
+        return () => {
+            if (bluetoothServiceInstance) {
+                bluetoothServiceInstance.off('connectionChange', onConnectionChange);
+                bluetoothServiceInstance.off('roleChange', onRoleChange);
+            }
+        };
     }, []);
 
     return {
