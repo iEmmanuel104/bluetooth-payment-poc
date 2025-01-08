@@ -1,6 +1,6 @@
-// lib/bluetooth/service.ts
-import { Token } from "@/types";
-import { PaymentProtocol } from "./protocol";
+// src/lib/bluetooth/service.ts
+import { Token } from '@/types';
+import { PaymentProtocol } from './protocol';
 
 export class BluetoothService {
     private device: BluetoothDevice | null = null;
@@ -9,27 +9,64 @@ export class BluetoothService {
 
     async connect(): Promise<void> {
         try {
-            this.device = await navigator.bluetooth.requestDevice({
-                filters: [{
-                    services: [PaymentProtocol.SERVICE_UUID]
-                }]
+            // Check if Bluetooth is available
+            if (!navigator.bluetooth) {
+                throw new Error('Bluetooth is not available. Make sure you are using a compatible browser and have enabled the Web Bluetooth API.');
+            }
+
+            // Request device with better error handling
+            try {
+                this.device = await navigator.bluetooth.requestDevice({
+                    filters: [{
+                        services: [PaymentProtocol.SERVICE_UUID]
+                    }],
+                    optionalServices: [] // Add any optional services here
+                });
+            } catch (error) {
+                if ((error as Error).name === 'NotFoundError') {
+                    throw new Error('No compatible Bluetooth devices found. Make sure your device has Bluetooth enabled and is in range.');
+                } else if ((error as Error).name === 'SecurityError') {
+                    throw new Error('Bluetooth permission denied. Please allow Bluetooth access when prompted.');
+                } else {
+                    throw new Error(`Failed to connect: ${(error as Error).message}`);
+                }
+            }
+
+            // Connect to the device
+            try {
+                const gattServer = await this.device.gatt?.connect();
+                this.server = gattServer ?? null;
+                if (!this.server) {
+                    throw new Error('Failed to connect to device');
+                }
+            } catch (error) {
+                throw new Error(`Failed to establish GATT connection: ${(error as Error).message}`);
+            }
+
+            this.emit('connectionChange', true);
+            await this.setupNotifications();
+
+            // Add disconnect listener
+            this.device.addEventListener('gattserverdisconnected', () => {
+                this.handleDisconnect();
             });
 
-            const gatt = this.device.gatt;
-            if (!gatt) {
-                throw new Error("GATT server not found");
-            }
-            this.server = await gatt.connect();
-            if (!this.server) {
-                throw new Error("Failed to connect to device");
-            }
-
-            this.emit("connectionChange", true);
-            this.setupNotifications();
         } catch (error) {
-            this.emit("connectionChange", false);
+            this.emit('connectionChange', false);
             throw error;
         }
+    }
+
+    private handleDisconnect() {
+        this.server = null;
+        this.emit('connectionChange', false);
+    }
+
+    async disconnect(): Promise<void> {
+        if (this.server) {
+            this.server.disconnect();
+        }
+        this.handleDisconnect();
     }
 
     async sendToken(token: Token): Promise<void> {

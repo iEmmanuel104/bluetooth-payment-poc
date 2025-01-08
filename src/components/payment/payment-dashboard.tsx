@@ -1,9 +1,10 @@
 // components/payment/payment-dashboard.tsx
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ConnectionButton } from "@/components/bluetooth/connection-button";
+import { BluetoothSetupChecker } from "@/components/bluetooth/setup-checker";
 import { PaymentForm } from "./payment-form";
 import { TokenList } from "./token-list";
 import { WalletCard } from "./wallet-card";
@@ -12,7 +13,12 @@ import { useToast } from "@/components/ui/use-toast";
 
 export function PaymentDashboard() {
     const [isConnected, setIsConnected] = useState(false);
+    const [isClient, setIsClient] = useState(false);
     const { toast } = useToast();
+
+    useEffect(() => {
+        setIsClient(true);
+    }, []);
 
     const handleConnectionChange = (connected: boolean) => {
         setIsConnected(connected);
@@ -23,8 +29,13 @@ export function PaymentDashboard() {
         });
     };
 
+    if (!isClient) {
+        return null; // or a loading skeleton
+    }
+
     return (
         <div className="space-y-6">
+            <BluetoothSetupChecker />
             <Card>
                 <CardHeader>
                     <CardTitle>Bluetooth Payment System</CardTitle>
