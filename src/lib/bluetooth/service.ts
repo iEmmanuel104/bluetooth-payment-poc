@@ -1,11 +1,22 @@
 // src/lib/bluetooth/service.ts
 import { Token } from '@/types';
 import { PaymentProtocol } from './protocol';
+export interface BluetoothDeviceInfo {
+    id: string;
+    name: string | null;
+    connected: boolean;
+}
+
+export interface BluetoothServiceEvents {
+    connectionChange: boolean;
+    deviceDisconnected: BluetoothDeviceInfo;
+}
 
 export class BluetoothService {
     private device: BluetoothDevice | null = null;
     private server: BluetoothRemoteGATTServer | null = null;
     private listeners: Map<string, Function[]> = new Map();
+    private discoveredDevices: Set<BluetoothDevice> = new Set();
 
     async connect(): Promise<void> {
         try {
@@ -99,6 +110,75 @@ export class BluetoothService {
             const token = PaymentProtocol.decodeToken(value.buffer as ArrayBuffer);
             this.emit("tokenReceived", token);
         });
+    }
+
+    async checkAvailability(): Promise<{ available: boolean; enabled: boolean }> {
+        try {
+            if (!navigator.bluetooth) {
+                return { available: false, enabled: false };
+            }
+            const enabled = await navigator.bluetooth.getAvailability();
+            return { available: true, enabled };
+        } catch (error) {
+            console.error('Error checking Bluetooth availability:', error);
+            return { available: false, enabled: false };
+        }
+    }
+
+    // Start device discovery
+    async startScanning(): Promise<BluetoothDeviceInfo[]> {
+        try {
+            const device = await navigator.bluetooth.requestDevice({
+                // Option 1: Accept all devices
+                // acceptAllDevices: true,
+
+                // Option 2: Use filters (recommended)
+                filters: [{
+                    services: [PaymentProtocol.SERVICE_UUID]
+                }],
+                optionalServices: [] // Add any additional services here
+            });
+
+            this.discoveredDevices.add(device);
+
+            // Listen for disconnection
+            device.addEventListener('gattserverdisconnected', () => {
+                this.handleDisconnection(device);
+            });
+
+            return Array.from(this.discoveredDevices).map(this.deviceToInfo);
+        } catch (error) {
+            console.error('Error scanning for devices:', error);
+            throw error;
+        }
+    }
+
+    // Get current connection status
+    getCurrentDevice(): BluetoothDeviceInfo | null {
+        if (!this.device) return null;
+        return this.deviceToInfo(this.device);
+    }
+
+    // Get list of discovered devices
+    getDiscoveredDevices(): BluetoothDeviceInfo[] {
+        return Array.from(this.discoveredDevices).map(this.deviceToInfo);
+    }
+
+    private deviceToInfo(device: BluetoothDevice): BluetoothDeviceInfo {
+        return {
+            id: device.id,
+            name: device.name || 'Unknown Device',
+            connected: device.gatt?.connected || false
+        };
+    }
+
+    private handleDisconnection(device: BluetoothDevice) {
+        this.emit('deviceDisconnected', this.deviceToInfo(device));
+        if (device === this.device) {
+            this.device = null;
+            this.server = null;
+            this.emit('connectionChange', false);
+        }
     }
 
     on(event: string, callback: Function): void {

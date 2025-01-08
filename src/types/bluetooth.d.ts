@@ -1,10 +1,16 @@
 // src/types/bluetooth.d.ts
-interface Window {
-    bluetooth: Bluetooth;
+declare interface Window {
+    bluetooth: {
+        getAvailability(): Promise<boolean>;
+        requestDevice(options: RequestDeviceOptions): Promise<BluetoothDevice>;
+    }
 }
 
-interface Navigator {
-    bluetooth: Bluetooth;
+declare interface Navigator {
+    bluetooth: {
+        getAvailability(): Promise<boolean>;
+        requestDevice(options: RequestDeviceOptions): Promise<BluetoothDevice>;
+    }
 }
 
 interface Bluetooth {
