@@ -1,11 +1,9 @@
-// src/components/bluetooth/status-indicator.tsx
 "use client";
 
 import { useEffect, useState } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Bluetooth, BluetoothOff, BluetoothSearching } from "lucide-react";
 import { useBluetoothService } from "@/lib/hooks/use-bluetooth";
-import { BluetoothDeviceInfo } from "@/lib/bluetooth/service";
 
 export function BluetoothStatusIndicator() {
     const [status, setStatus] = useState<{
@@ -13,8 +11,7 @@ export function BluetoothStatusIndicator() {
         enabled: boolean;
     }>({ available: false, enabled: false });
 
-    const { bluetoothService } = useBluetoothService();
-    const [currentDevice, setCurrentDevice] = useState<BluetoothDeviceInfo | null>(null);
+    const { bluetoothService, isConnected, currentRole } = useBluetoothService();
 
     useEffect(() => {
         if (!bluetoothService) return;
@@ -22,7 +19,6 @@ export function BluetoothStatusIndicator() {
         const checkStatus = async () => {
             const result = await bluetoothService.checkAvailability();
             setStatus(result);
-            setCurrentDevice(bluetoothService.getCurrentDevice());
         };
 
         checkStatus();
@@ -39,7 +35,7 @@ export function BluetoothStatusIndicator() {
                         <BluetoothOff className="h-5 w-5 text-slate-500" />
                     ) : !status.enabled ? (
                         <Bluetooth className="h-5 w-5 text-slate-500" />
-                    ) : currentDevice ? (
+                    ) : isConnected ? (
                         <Bluetooth className="h-5 w-5 text-green-500" />
                     ) : (
                         <BluetoothSearching className="h-5 w-5 text-blue-500" />
@@ -51,8 +47,10 @@ export function BluetoothStatusIndicator() {
                             ? "Bluetooth Not Available"
                             : !status.enabled
                             ? "Bluetooth Disabled"
-                            : currentDevice
-                            ? `Connected to ${currentDevice.name}`
+                            : isConnected
+                            ? `Connected ${currentRole === "emitter" ? "to Receiver" : "with Sender"}`
+                            : currentRole === "receiver"
+                            ? "Waiting for Connection"
                             : "Ready to Connect"}
                     </h3>
                     <p className="text-sm text-muted-foreground">
@@ -60,9 +58,11 @@ export function BluetoothStatusIndicator() {
                             ? "Your device doesn't support Bluetooth"
                             : !status.enabled
                             ? "Please enable Bluetooth on your device"
-                            : currentDevice
+                            : isConnected
                             ? "Device is paired and ready"
-                            : "Discoverable by other devices"}
+                            : currentRole === "receiver"
+                            ? "Waiting for sender to connect"
+                            : "Scan to discover nearby devices"}
                     </p>
                 </div>
             </CardContent>

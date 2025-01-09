@@ -1,3 +1,4 @@
+// src/lib/hooks/use-bluetooth.ts
 import { useState, useEffect } from 'react';
 import { BluetoothService } from '../bluetooth/service';
 import { Token } from '@/types';
@@ -46,9 +47,6 @@ export function useBluetoothService() {
         isConnected,
         currentRole,
         bluetoothService: bluetoothServiceInstance,
-        connect: async () => {
-            await bluetoothServiceInstance?.connect();
-        },
         sendToken: async (token: Token) => {
             await bluetoothServiceInstance?.sendToken(token);
         }

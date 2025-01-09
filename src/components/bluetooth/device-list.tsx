@@ -1,17 +1,47 @@
-// src/components/bluetooth/device-list.tsx
+// components/bluetooth/device-list.tsx
 "use client";
 
 import { useEffect, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Loader2, Bluetooth, BluetoothOff } from "lucide-react";
+import { Loader2, Bluetooth } from "lucide-react";
 import { BluetoothDeviceInfo } from "@/lib/bluetooth/service";
 import { useBluetoothService } from "@/lib/hooks/use-bluetooth";
+import { useToast } from "@/components/ui/use-toast";
+import { PairingRole } from "@/types/bluetooth";
 
 export function DeviceList() {
     const [isScanning, setIsScanning] = useState(false);
     const [devices, setDevices] = useState<BluetoothDeviceInfo[]>([]);
-    const { bluetoothService } = useBluetoothService();
+    const { bluetoothService, currentRole } = useBluetoothService();
+    const { toast } = useToast();
+
+    useEffect(() => {
+        if (bluetoothService && currentRole === PairingRole.EMITTER) {
+            // Set up device discovery listener
+            const handleDeviceDiscovered = (device: BluetoothDeviceInfo) => {
+                setDevices((prev) => {
+                    const exists = prev.some((d) => d.id === device.id);
+                    if (!exists) {
+                        return [...prev, device];
+                    }
+                    return prev;
+                });
+            };
+
+            const handleDeviceDisconnected = (device: BluetoothDeviceInfo) => {
+                setDevices((prev) => prev.filter((d) => d.id !== device.id));
+            };
+
+            bluetoothService.on("deviceDiscovered", handleDeviceDiscovered);
+            bluetoothService.on("deviceDisconnected", handleDeviceDisconnected);
+
+            return () => {
+                bluetoothService.off("deviceDiscovered", handleDeviceDiscovered);
+                bluetoothService.off("deviceDisconnected", handleDeviceDisconnected);
+            };
+        }
+    }, [bluetoothService, currentRole]);
 
     const startScanning = async () => {
         if (!bluetoothService) return;
@@ -22,10 +52,46 @@ export function DeviceList() {
             setDevices(discoveredDevices);
         } catch (error) {
             console.error("Error scanning:", error);
+            toast({
+                title: "Scanning Failed",
+                description: (error as Error).message,
+                variant: "destructive",
+            });
         } finally {
             setIsScanning(false);
         }
     };
+
+    const connectToDevice = async (deviceId: string) => {
+        if (!bluetoothService) return;
+
+        try {
+            await bluetoothService.connectToDevice(deviceId);
+            toast({
+                title: "Connected",
+                description: "Successfully connected to device",
+            });
+        } catch (error) {
+            toast({
+                title: "Connection Failed",
+                description: (error as Error).message,
+                variant: "destructive",
+            });
+        }
+    };
+
+    if (currentRole === PairingRole.RECEIVER) {
+        return (
+            <Card>
+                <CardHeader>
+                    <CardTitle>Device Status</CardTitle>
+                </CardHeader>
+                <CardContent>
+                    <p className="text-muted-foreground">Your device is visible to others and ready to receive connections.</p>
+                </CardContent>
+            </Card>
+        );
+    }
 
     return (
         <Card>
@@ -43,27 +109,26 @@ export function DeviceList() {
                 </Button>
             </CardHeader>
             <CardContent>
-                {devices.length === 0 ? (
-                    <div className="flex flex-col items-center justify-center py-6 text-center text-sm text-muted-foreground">
-                        <BluetoothOff className="h-8 w-8 mb-2" />
-                        <p>No devices found</p>
-                        <p className="text-xs">Click scan to discover nearby devices</p>
-                    </div>
-                ) : (
-                    <div className="space-y-2">
-                        {devices.map((device) => (
-                            <div key={device.id} className="flex items-center justify-between p-2 border rounded-lg">
-                                <div className="flex items-center space-x-2">
-                                    <Bluetooth className={`h-4 w-4 ${device.connected ? "text-green-500" : "text-blue-500"}`} />
-                                    <span>{device.name}</span>
+                <div className="space-y-2">
+                    {devices.length === 0 ? (
+                        <p className="text-center text-muted-foreground py-4">No devices found. Click scan to discover nearby devices.</p>
+                    ) : (
+                        devices.map((device) => (
+                            <div
+                                key={device.id}
+                                className="flex items-center justify-between p-3 border rounded-lg hover:bg-slate-50 transition-colors"
+                            >
+                                <div className="flex items-center space-x-3">
+                                    <Bluetooth className="h-4 w-4 text-blue-500" />
+                                    <span>{device.name || "Unknown Device"}</span>
                                 </div>
-                                <span className={`text-sm ${device.connected ? "text-green-500" : "text-muted-foreground"}`}>
-                                    {device.connected ? "Connected" : "Available"}
-                                </span>
+                                <Button size="sm" onClick={() => connectToDevice(device.id)} disabled={device.connected}>
+                                    {device.connected ? "Connected" : "Connect"}
+                                </Button>
                             </div>
-                        ))}
-                    </div>
-                )}
+                        ))
+                    )}
+                </div>
             </CardContent>
         </Card>
     );

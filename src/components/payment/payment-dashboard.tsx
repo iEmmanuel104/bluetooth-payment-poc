@@ -3,112 +3,127 @@
 
 import React, { useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { ConnectionButton } from "@/components/bluetooth/connection-button";
 import { BluetoothSetupChecker } from "@/components/bluetooth/setup-checker";
+import { BluetoothStatusIndicator } from "@/components/bluetooth/status-indicator";
 import { PaymentForm } from "./payment-form";
 import { TokenList } from "./token-list";
 import { WalletCard } from "./wallet-card";
-import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/use-toast";
-import { DeviceList } from "../bluetooth/device-list";
-import { BluetoothStatusIndicator } from "../bluetooth/status-indicator";
 import { PairingRole } from "@/types/bluetooth";
 import { useBluetoothService } from "@/lib/hooks/use-bluetooth";
-import { PaymentRoleSelector } from "./role-selector";
+import { SendIcon, DownloadIcon } from "lucide-react";
+import { DeviceList } from "../bluetooth/device-list";
+import { ReceivedPaymentNotification } from "./received-payment-notification";
 
 export function PaymentDashboard() {
-    const [isConnected, setIsConnected] = useState(false);
     const [isClient, setIsClient] = useState(false);
     const { toast } = useToast();
-    const { currentRole, bluetoothService } = useBluetoothService();
+    const { currentRole, bluetoothService, isConnected } = useBluetoothService();
+    const [isConnecting, setIsConnecting] = useState(false);
 
     useEffect(() => {
         setIsClient(true);
     }, []);
 
-    const handleConnectionChange = (connected: boolean) => {
-        setIsConnected(connected);
-        toast({
-            title: connected ? "Connected" : "Disconnected",
-            description: connected ? "Device connected successfully" : "Device disconnected",
-            variant: connected ? "default" : "destructive",
-        });
-    };
+    if (!isClient) return null;
 
-    if (!isClient) {
-        return null;
-    }
-
-    const renderBluetoothControls = () => {
-        if (currentRole === PairingRole.NONE) {
-            return null;
+    const handleRoleSelect = async (role: PairingRole) => {
+        if (!bluetoothService) {
+            toast({
+                title: "Error",
+                description: "Bluetooth service not available",
+                variant: "destructive",
+            });
+            return;
         }
 
-        return (
-            <>
-                <BluetoothSetupChecker />
-                <BluetoothStatusIndicator />
+        setIsConnecting(true);
+        try {
+            await bluetoothService.resetRole();
 
-                <div className="grid gap-6 md:grid-cols-2">
-                    <DeviceList />
-                    <Card>
-                        <CardHeader>
-                            <CardTitle>{currentRole === PairingRole.EMITTER ? "Send Payment" : "Receive Payment"}</CardTitle>
-                        </CardHeader>
-                        <CardContent>
-                            <div className="flex items-center space-x-4">
-                                <ConnectionButton onConnectionChange={handleConnectionChange} />
-                                {!isConnected && (
-                                    <Alert variant="destructive" className="w-full">
-                                        <AlertDescription>
-                                            Please connect to a device to {currentRole === PairingRole.EMITTER ? "send" : "receive"} payments
-                                        </AlertDescription>
-                                    </Alert>
-                                )}
-                            </div>
-                        </CardContent>
-                    </Card>
-                </div>
-            </>
-        );
+            if (role === PairingRole.EMITTER) {
+                await bluetoothService.startAsEmitter();
+                toast({
+                    title: "Send Mode Active",
+                    description: "Ready to scan for receivers",
+                });
+            } else if (role === PairingRole.RECEIVER) {
+                await bluetoothService.advertiseAsReceiver();
+                toast({
+                    title: "Receive Mode Active",
+                    description: "Ready to receive payments",
+                });
+            }
+        } catch (error) {
+            console.error("Error:", error);
+            toast({
+                title: "Error",
+                description: (error as Error).message,
+                variant: "destructive",
+            });
+        } finally {
+            setIsConnecting(false);
+        }
     };
 
-    const renderPaymentControls = () => {
-        if (!isConnected || currentRole === PairingRole.NONE) {
-            return null;
-        }
-
+    // If no role is selected, show role selection
+    if (currentRole === PairingRole.NONE) {
         return (
-            <div className="grid gap-6 md:grid-cols-2">
-                {currentRole === PairingRole.EMITTER && <PaymentForm isConnected={isConnected} />}
-                {currentRole === PairingRole.RECEIVER && (
-                    <Card>
-                        <CardHeader>
-                            <CardTitle>Waiting for Payment</CardTitle>
-                        </CardHeader>
-                        <CardContent>
-                            <p className="text-muted-foreground">Your device is ready to receive payments. Keep this screen open.</p>
-                        </CardContent>
-                    </Card>
-                )}
-                <TokenList />
+            <div className="space-y-6">
+                <WalletCard />
+                <ReceivedPaymentNotification />
+                <Card>
+                    <CardHeader>
+                        <CardTitle>Select Payment Mode</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                        <div className="grid grid-cols-2 gap-4">
+                            <Button onClick={() => handleRoleSelect(PairingRole.EMITTER)} disabled={isConnecting} className="h-32">
+                                <div className="flex flex-col items-center space-y-2">
+                                    <SendIcon className="h-8 w-8" />
+                                    <span>Send Payment</span>
+                                </div>
+                            </Button>
+                            <Button onClick={() => handleRoleSelect(PairingRole.RECEIVER)} disabled={isConnecting} className="h-32">
+                                <div className="flex flex-col items-center space-y-2">
+                                    <DownloadIcon className="h-8 w-8" />
+                                    <span>Receive Payment</span>
+                                </div>
+                            </Button>
+                        </div>
+                    </CardContent>
+                </Card>
             </div>
         );
-    };
+    }
 
     return (
         <div className="space-y-6">
-            {/* Always show wallet and role selector */}
-            <div className="grid gap-6 md:grid-cols-2">
-                <WalletCard />
-                <PaymentRoleSelector />
-            </div>
+            <WalletCard />
+            <BluetoothSetupChecker />
+            <BluetoothStatusIndicator />
 
-            {/* Show Bluetooth controls only after role selection */}
-            {renderBluetoothControls()}
+            <DeviceList />
 
-            {/* Show payment controls only after connection */}
-            {renderPaymentControls()}
+            {currentRole === PairingRole.EMITTER && <PaymentForm isConnected={isConnected} />}
+
+            {currentRole === PairingRole.RECEIVER && (
+                <Card>
+                    <CardHeader>
+                        <CardTitle>Waiting for Payment</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                        <p className="text-muted-foreground">Your device is ready to receive payments. Keep this screen open.</p>
+                    </CardContent>
+                </Card>
+            )}
+
+            <TokenList />
+
+            <Button variant="destructive" onClick={() => handleRoleSelect(PairingRole.NONE)} disabled={isConnecting}>
+                Reset Mode
+            </Button>
         </div>
     );
 }
