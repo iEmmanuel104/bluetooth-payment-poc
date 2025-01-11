@@ -1,6 +1,7 @@
+// next.config.mjs
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-    // Configure headers for Web Bluetooth
+    // Configure headers for Web Bluetooth and NFC
     async headers() {
         return [
             {
@@ -8,11 +9,15 @@ const nextConfig = {
                 headers: [
                     {
                         key: 'Permissions-Policy',
-                        value: 'bluetooth=*'
+                        value: 'nfc=*, bluetooth=*'
+                    },
+                    {
+                        key: 'Origin-Trial',
+                        value: process.env.NEXT_PUBLIC_ORIGIN_TRIAL_TOKEN || ''
                     }
                 ]
             }
-        ]
+        ];
     },
     // Update experimental features configuration
     experimental: {

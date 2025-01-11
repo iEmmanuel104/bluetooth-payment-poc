@@ -5,8 +5,12 @@ import { OfflineToken } from './types';
 export class OfflineBlockchainService {
     private _wallet: ethers.BaseWallet;
     private pendingTransfers: Map<string, OfflineToken>;
+    private listeners: Map<string, Function[]>;
 
     constructor() {
+        // Initialize listeners
+        this.listeners = new Map();
+
         // Generate deterministic wallet from local storage seed
         const storedSeed = localStorage.getItem('walletSeed');
         let privateKey: string;
@@ -29,16 +33,43 @@ export class OfflineBlockchainService {
         this.loadPendingTransfers();
     }
 
-    // Rest of the implementation remains the same...
     get walletAddress(): string {
         return this._wallet.address;
+    }
+
+    private emit(event: string, data?: any): void {
+        const callbacks = this.listeners.get(event) || [];
+        callbacks.forEach(callback => callback(data));
+    }
+
+    // Event handling methods
+    on(event: string, callback: Function): void {
+        if (!this.listeners.has(event)) {
+            this.listeners.set(event, []);
+        }
+        this.listeners.get(event)?.push(callback);
+    }
+
+    off(event: string, callback: Function): void {
+        const callbacks = this.listeners.get(event);
+        if (callbacks) {
+            const index = callbacks.indexOf(callback);
+            if (index !== -1) {
+                callbacks.splice(index, 1);
+            }
+        }
     }
 
     private loadPendingTransfers(): void {
         const stored = localStorage.getItem('pendingTransfers');
         if (stored) {
-            const entries = JSON.parse(stored);
-            this.pendingTransfers = new Map(entries);
+            try {
+                const entries = JSON.parse(stored);
+                this.pendingTransfers = new Map(entries);
+                this.emit('transfersLoaded', Array.from(this.pendingTransfers.values()));
+            } catch (error) {
+                console.error('Error loading pending transfers:', error);
+            }
         }
     }
 
@@ -69,18 +100,10 @@ export class OfflineBlockchainService {
         this.pendingTransfers.set(transferId, offlineToken);
         this.savePendingTransfers();
 
-        return offlineToken;
-    }
+        // Emit event
+        this.emit('transferCreated', offlineToken);
 
-    async verifyOfflineTransfer(token: OfflineToken): Promise<boolean> {
-        const message = this.createSignMessage(token);
-        try {
-            const recoveredAddress = ethers.verifyMessage(message, token.signature);
-            return recoveredAddress.toLowerCase() === token.fromAddress.toLowerCase();
-        } catch (error) {
-            console.error('Signature verification failed:', error);
-            return false;
-        }
+        return offlineToken;
     }
 
     async receiveOfflineTransfer(token: OfflineToken): Promise<OfflineToken> {
@@ -98,7 +121,43 @@ export class OfflineBlockchainService {
         this.pendingTransfers.set(token.transferId, receivedToken);
         this.savePendingTransfers();
 
+        // Emit event
+        this.emit('transferReceived', receivedToken);
+
         return receivedToken;
+    }
+
+    async verifyOfflineTransfer(token: OfflineToken): Promise<boolean> {
+        const message = this.createSignMessage(token);
+        try {
+            const recoveredAddress = ethers.verifyMessage(message, token.signature);
+            return recoveredAddress.toLowerCase() === token.fromAddress.toLowerCase();
+        } catch (error) {
+            console.error('Signature verification failed:', error);
+            return false;
+        }
+    }
+
+    async updateTransferStatus(transferId: string, status: 'pending' | 'confirmed' | 'failed' | null): Promise<void> {
+        const token = this.pendingTransfers.get(transferId);
+        if (token) {
+            const updatedToken = { ...token, onchainStatus: status };
+            this.pendingTransfers.set(transferId, updatedToken);
+            this.savePendingTransfers();
+            this.emit('transferStatusChanged', updatedToken);
+        }
+    }
+
+    private savePendingTransfers(): void {
+        try {
+            localStorage.setItem(
+                'pendingTransfers',
+                JSON.stringify(Array.from(this.pendingTransfers.entries()))
+            );
+            this.emit('transfersSaved', Array.from(this.pendingTransfers.values()));
+        } catch (error) {
+            console.error('Error saving pending transfers:', error);
+        }
     }
 
     private createSignMessage(token: OfflineToken): Uint8Array {
@@ -114,13 +173,6 @@ export class OfflineBlockchainService {
             ]
         );
         return ethers.getBytes(messageHash);
-    }
-
-    private savePendingTransfers(): void {
-        localStorage.setItem(
-            'pendingTransfers',
-            JSON.stringify(Array.from(this.pendingTransfers.entries()))
-        );
     }
 
     getPendingTransfers(): OfflineToken[] {

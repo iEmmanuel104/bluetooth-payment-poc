@@ -1,4 +1,5 @@
-import { BluetoothDeviceInfo } from "@/lib/bluetooth/service";
+import { OfflineToken } from "@/lib/blockchain/types";
+import { PairingRole } from "./bluetooth";
 
 // src/types/index.ts
 export interface Token {
@@ -42,3 +43,45 @@ declare global {
         acceptAllDevices?: boolean;
     }
 }
+
+export enum CommunicationType {
+    BLUETOOTH = 'bluetooth',
+    NFC = 'nfc'
+}
+
+export interface CommunicationConfig {
+    type: CommunicationType;
+    enabled: boolean;
+}
+
+export interface BluetoothDeviceInfo {
+    id: string;
+    name: string | null;
+    connected: boolean;
+    role?: PairingRole;
+}
+
+export interface ICommunicationService {
+    getCurrentRole(): PairingRole;
+    startAsEmitter(): Promise<void>;
+    advertiseAsReceiver(): Promise<void>;
+    sendToken(token: OfflineToken): Promise<void>;
+    resetRole(): Promise<void>;
+    checkAvailability(): Promise<{ available: boolean; enabled: boolean; }>;
+    startScanning?(): Promise<BluetoothDeviceInfo[]>;
+    connectToDevice?(deviceId: string): Promise<void>;
+    on(event: string, callback: Function): void;
+    off(event: string, callback: Function): void;
+}
+// Common event types for both services
+
+export const CommunicationEvents = {
+    ROLE_CHANGE: 'roleChange',
+    CONNECTION_CHANGE: 'connectionChange',
+    DEVICE_DISCOVERED: 'deviceDiscovered',
+    DEVICE_DISCONNECTED: 'deviceDisconnected',
+    PAYMENT_RECEIVED: 'paymentReceived',
+    TOKEN_SENT: 'tokenSent'
+} as const;
+
+export type CommunicationEventType = keyof typeof CommunicationEvents;
