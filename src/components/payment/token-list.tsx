@@ -1,25 +1,14 @@
+// components/payment/token-list.tsx
 import React, { useEffect, useState } from "react";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
-import { Token } from "@/types";
-import { Database } from "@/lib/db";
 import { useBluetoothService } from "@/lib/hooks/use-bluetooth";
 import { PairingRole } from "@/types/bluetooth";
-
-const db = new Database();
+import { OfflineToken } from "@/lib/blockchain/types";
+import { useOfflineWallet } from "@/lib/hooks/use-offline-wallet";
 
 export function TokenList() {
-    const [tokens, setTokens] = useState<Token[]>([]);
     const { currentRole } = useBluetoothService();
-
-    useEffect(() => {
-        const loadTokens = async () => {
-            await db.initialize();
-            const savedTokens = await db.getTokens();
-            setTokens(savedTokens);
-        };
-
-        loadTokens();
-    }, []);
+    const { pendingTransfers } = useOfflineWallet();
 
     // Show different titles based on the role
     const getTitle = () => {
@@ -33,6 +22,19 @@ export function TokenList() {
         }
     };
 
+    const getStatusColor = (status: string | null) => {
+        switch (status) {
+            case "confirmed":
+                return "bg-green-100 text-green-800";
+            case "pending":
+                return "bg-yellow-100 text-yellow-800";
+            case "failed":
+                return "bg-red-100 text-red-800";
+            default:
+                return "bg-gray-100 text-gray-800";
+        }
+    };
+
     return (
         <Card>
             <CardHeader>
@@ -40,26 +42,21 @@ export function TokenList() {
             </CardHeader>
             <CardContent>
                 <div className="space-y-4">
-                    {tokens.length === 0 ? (
+                    {pendingTransfers.length === 0 ? (
                         <p className="text-muted-foreground">No transactions yet</p>
                     ) : (
                         <div className="grid gap-4">
-                            {tokens.map((token) => (
-                                <div key={token.id} className="flex items-center justify-between p-4 border rounded-lg">
+                            {pendingTransfers.map((token) => (
+                                <div key={token.transferId} className="flex items-center justify-between p-4 border rounded-lg">
                                     <div>
-                                        <p className="font-medium">Amount: {token.amount}</p>
-                                        <p className="text-sm text-muted-foreground">{new Date(token.issueDate).toLocaleString()}</p>
+                                        <p className="font-medium">
+                                            Amount: {token.amount} {token.symbol}
+                                        </p>
+                                        <p className="text-sm text-muted-foreground">{new Date(token.timestamp).toLocaleString()}</p>
+                                        <p className="text-xs text-muted-foreground truncate max-w-[200px]">To: {token.toAddress || "Pending"}</p>
                                     </div>
-                                    <span
-                                        className={`px-2 py-1 text-xs rounded-full ${
-                                            token.status === "active"
-                                                ? "bg-green-100 text-green-800"
-                                                : token.status === "spent"
-                                                ? "bg-gray-100 text-gray-800"
-                                                : "bg-red-100 text-red-800"
-                                        }`}
-                                    >
-                                        {token.status}
+                                    <span className={`px-2 py-1 text-xs rounded-full ${getStatusColor(token.onchainStatus)}`}>
+                                        {token.onchainStatus || "Pending"}
                                     </span>
                                 </div>
                             ))}

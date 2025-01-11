@@ -2,6 +2,7 @@
 import { Token } from '@/types';
 import { PaymentProtocol } from './protocol';
 import { PairingRole } from '@/types/bluetooth';
+import { OfflineToken } from '../blockchain/types';
 
 export interface BluetoothDeviceInfo {
     id: string;
@@ -255,7 +256,7 @@ export class BluetoothService {
     }
 
     // Send a token to the connected device
-    async sendToken(token: Token): Promise<void> {
+    async sendToken(token: OfflineToken): Promise<void> {
         if (!this.server) {
             throw new Error('Not connected to any device');
         }

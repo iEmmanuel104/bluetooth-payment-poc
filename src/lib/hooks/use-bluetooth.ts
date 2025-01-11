@@ -3,6 +3,7 @@ import { useState, useEffect } from 'react';
 import { BluetoothService } from '../bluetooth/service';
 import { Token } from '@/types';
 import { PairingRole } from '@/types/bluetooth';
+import { OfflineToken } from '../blockchain/types';
 
 let bluetoothServiceInstance: BluetoothService | null = null;
 
@@ -58,7 +59,7 @@ export function useBluetoothService() {
         isConnected,
         currentRole,
         bluetoothService: bluetoothServiceInstance,
-        sendToken: async (token: Token) => {
+        sendToken: async (token: OfflineToken) => {
             await bluetoothServiceInstance?.sendToken(token);
         }
     };

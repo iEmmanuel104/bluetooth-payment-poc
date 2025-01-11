@@ -1,11 +1,12 @@
 // lib/db/index.ts
 import { openDB, DBSchema, IDBPDatabase } from "idb";
-import { Token, Wallet } from "@/types";
+import { Wallet } from "@/types";
+import { OfflineToken } from "../blockchain/types";
 
 interface PaymentDB extends DBSchema {
     tokens: {
         key: string;
-        value: Token;
+        value: OfflineToken;
     };
     wallet: {
         key: string;
@@ -33,11 +34,11 @@ export class Database {
         await this.db?.put("wallet", wallet);
     }
 
-    async saveToken(token: Token): Promise<void> {
+    async saveToken(token: OfflineToken): Promise<void> {
         await this.db?.put("tokens", token);
     }
 
-    async getTokens(): Promise<Token[]> {
+    async getTokens(): Promise<OfflineToken[]> {
         return this.db?.getAll("tokens") ?? [];
     }
 }

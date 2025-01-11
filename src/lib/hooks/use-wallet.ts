@@ -1,62 +1,57 @@
 // src/lib/hooks/use-wallet.ts
 import { useState, useEffect } from 'react';
-import { Token, Wallet } from '@/types';
-import { Database } from '@/lib/db';
+import { OfflineToken } from '../blockchain/types';
+import { OfflineBlockchainService } from '../blockchain/service';
 
-const db = new Database();
+interface WalletState {
+    address: string;
+    balance: string;
+    tokens: OfflineToken[];
+}
 
 export function useWallet() {
-    const [wallet, setWallet] = useState<Wallet>({
+    const [wallet, setWallet] = useState<WalletState>({
         address: '',
-        balance: 0,
+        balance: '0',
         tokens: []
     });
 
+    const [service] = useState(() => new OfflineBlockchainService());
+
     useEffect(() => {
         const initializeWallet = async () => {
-            await db.initialize();
-            const address = crypto.randomUUID();
-            const savedWallet = await db.getWallet(address);
+            const address = service.walletAddress;
+            const tokens = service.getPendingTransfers();
 
-            if (savedWallet) {
-                setWallet(savedWallet);
-            } else {
-                const newWallet: Wallet = {
-                    address,
-                    balance: 1000, // Initial balance for demo
-                    tokens: []
-                };
-                await db.saveWallet(newWallet);
-                setWallet(newWallet);
-            }
+            setWallet({
+                address,
+                balance: '1000', // Demo balance
+                tokens
+            });
         };
 
         initializeWallet();
-    }, []);
+    }, [service]);
 
-    const createToken = async (amount: number): Promise<Token> => {
-        if (amount > wallet.balance) {
+    const createToken = async (amount: string): Promise<OfflineToken> => {
+        if (BigInt(amount) > BigInt(wallet.balance)) {
             throw new Error('Insufficient balance');
         }
 
-        const token: Token = {
-            id: crypto.randomUUID(),
+        const token = await service.createOfflineTransfer({
             amount,
-            issueDate: Date.now(),
-            expiryDate: Date.now() + (24 * 60 * 60 * 1000), // 24 hours
-            signature: 'demo-signature-' + crypto.randomUUID(),
-            status: 'active'
-        };
+            contractAddress: '0x0000000000000000000000000000000000000000', // Demo contract
+            symbol: 'TOKEN',
+            decimals: 18,
+            type: 'ERC20',
+            tokenId: Date.now().toString()
+        });
 
-        const updatedWallet = {
-            ...wallet,
-            balance: wallet.balance - amount,
-            tokens: [...wallet.tokens, token]
-        };
-
-        await db.saveWallet(updatedWallet);
-        await db.saveToken(token);
-        setWallet(updatedWallet);
+        setWallet(prev => ({
+            ...prev,
+            balance: (BigInt(prev.balance) - BigInt(amount)).toString(),
+            tokens: [...prev.tokens, token]
+        }));
 
         return token;
     };

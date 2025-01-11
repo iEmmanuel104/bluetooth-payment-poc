@@ -26,7 +26,7 @@ export function PaymentForm({ isConnected }: PaymentFormProps) {
         if (!amount || !isConnected) return;
 
         try {
-            const token = await createToken(Number(amount));
+            const token = await createToken(amount);
             await sendToken(token);
 
             toast({
@@ -44,6 +44,15 @@ export function PaymentForm({ isConnected }: PaymentFormProps) {
         }
     };
 
+    // Helper function to compare BigInt strings
+    const isAmountTooLarge = (amount: string, balance: string): boolean => {
+        try {
+            return BigInt(amount) > BigInt(balance);
+        } catch {
+            return false;
+        }
+    };
+
     return (
         <Card>
             <CardHeader>
@@ -55,16 +64,19 @@ export function PaymentForm({ isConnected }: PaymentFormProps) {
                         <Label htmlFor="amount">Amount</Label>
                         <Input
                             id="amount"
-                            type="number"
+                            type="text"
+                            pattern="[0-9]*"
                             value={amount}
-                            onChange={(e) => setAmount(e.target.value)}
+                            onChange={(e) => {
+                                if (/^\d*$/.test(e.target.value)) {
+                                    setAmount(e.target.value);
+                                }
+                            }}
                             placeholder="Enter amount"
-                            min="0"
-                            step="0.01"
                             disabled={!isConnected}
                         />
                     </div>
-                    <Button type="submit" className="w-full" disabled={!isConnected || !amount || Number(amount) > wallet.balance}>
+                    <Button type="submit" className="w-full" disabled={!isConnected || !amount || isAmountTooLarge(amount, wallet.balance)}>
                         Send Payment
                     </Button>
                 </form>
