@@ -20,19 +20,30 @@ export function useBluetoothService() {
         const onConnectionChange = (connected: boolean) => {
             console.log('Connection changed:', connected);
             setIsConnected(connected);
+            localStorage.setItem('bluetoothConnected', String(connected));
         };
 
         const onRoleChange = (role: PairingRole) => {
             console.log('Role changed:', role);
             setCurrentRole(role);
+            localStorage.setItem('bluetoothRole', role);
         };
 
         bluetoothServiceInstance?.on('connectionChange', onConnectionChange);
         bluetoothServiceInstance?.on('roleChange', onRoleChange);
 
-        // Get initial role
-        const initialRole = bluetoothServiceInstance?.getCurrentRole() || PairingRole.NONE;
-        setCurrentRole(initialRole);
+        // Restore previous state
+        const savedRole = localStorage.getItem('bluetoothRole') as PairingRole;
+        if (savedRole) {
+            setCurrentRole(savedRole);
+            if (savedRole === PairingRole.EMITTER) {
+                bluetoothServiceInstance?.startAsEmitter()
+                    .then(() => bluetoothServiceInstance?.tryReconnect())
+                    .catch(console.error);
+            } else if (savedRole === PairingRole.RECEIVER) {
+                bluetoothServiceInstance?.advertiseAsReceiver().catch(console.error);
+            }
+        }
 
         // Cleanup listeners on unmount
         return () => {

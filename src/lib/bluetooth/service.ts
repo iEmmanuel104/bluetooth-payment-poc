@@ -18,6 +18,37 @@ export class BluetoothService {
     private currentRole: PairingRole = PairingRole.NONE;
     private advertising: boolean = false;
 
+    constructor() {
+        // Try to restore role from localStorage
+        const savedRole = localStorage.getItem('bluetoothRole') as PairingRole;
+        if (savedRole) {
+            this.currentRole = savedRole;
+        }
+    }
+
+    // Make tryReconnect public
+    public async tryReconnect(): Promise<void> {
+        const lastDeviceId = localStorage.getItem('lastConnectedDevice');
+        if (lastDeviceId && this.currentRole === PairingRole.EMITTER) {
+            try {
+                // Check if the device is in discoveredDevices
+                const device = Array.from(this.discoveredDevices)
+                    .find(d => d.id === lastDeviceId);
+
+                if (device) {
+                    await this.connectToDevice(lastDeviceId);
+                } else {
+                    // If device not found, we need to scan first
+                    await this.startScanning();
+                    await this.connectToDevice(lastDeviceId);
+                }
+            } catch (error) {
+                console.warn('Failed to reconnect to last device:', error);
+                throw error;
+            }
+        }
+    }
+
     // Start advertising as a receiver
     async advertiseAsReceiver(): Promise<void> {
         try {
@@ -381,6 +412,8 @@ export class BluetoothService {
         }
         this.device = null;
         this.server = null;
+        localStorage.removeItem('lastConnectedDevice');
+        localStorage.removeItem('bluetoothConnected');
         this.emit('connectionChange', false);
     }
 }

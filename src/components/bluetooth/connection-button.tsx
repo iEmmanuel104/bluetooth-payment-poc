@@ -11,14 +11,15 @@ interface ConnectionButtonProps {
 
 export function ConnectionButton({ onConnectionChange }: ConnectionButtonProps) {
     const [isConnecting, setIsConnecting] = useState(false);
-    const { isConnected, connect } = useBluetoothService();
+    const { isConnected, bluetoothService } = useBluetoothService();
 
     const handleConnect = async () => {
-        if (isConnected) return;
+        if (isConnected || !bluetoothService) return;
 
         setIsConnecting(true);
         try {
-            await connect();
+            // Try to reconnect to last device
+            await bluetoothService.tryReconnect();
             onConnectionChange(true);
         } catch (error) {
             console.error("Connection failed:", error);
