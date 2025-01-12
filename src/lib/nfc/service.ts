@@ -6,6 +6,7 @@ export class NFCService {
     private ndef: any;
     private currentRole: PairingRole = PairingRole.NONE;
     private listeners: Map<string, Function[]> = new Map();
+    private isScanning: boolean = false;
 
     constructor() {
         if ('NDEFReader' in window) {
@@ -19,17 +20,48 @@ export class NFCService {
             return { available: false, enabled: false };
         }
 
-        try {
-            await this.ndef.scan();
-            return { available: true, enabled: true };
-        } catch {
-            return { available: true, enabled: false };
+        // Only try to scan if we're not already scanning
+        if (!this.isScanning) {
+            try {
+                await this.ndef.scan();
+                this.isScanning = true;
+                return { available: true, enabled: true };
+            } catch {
+                return { available: true, enabled: false };
+            } finally {
+                // Stop the test scan
+                try {
+                    await this.stopScanning();
+                } catch (e) {
+                    console.error('Error stopping test scan:', e);
+                }
+            }
+        }
+
+        // If already scanning, assume NFC is available and enabled
+        return { available: true, enabled: true };
+    }
+
+    private async stopScanning(): Promise<void> {
+        if (this.ndef && this.isScanning) {
+            // NDEFReader doesn't have a built-in stop method, but we can abort the scan
+            // by creating and triggering an AbortController
+            const abortController = new AbortController();
+            try {
+                await this.ndef.scan({ signal: abortController.signal });
+            } catch (error) {
+                // Expected error when aborting
+            } finally {
+                abortController.abort();
+                this.isScanning = false;
+            }
         }
     }
 
     async startAsEmitter(): Promise<void> {
         if (!this.ndef) throw new Error('NFC not available');
 
+        await this.stopScanning();
         this.currentRole = PairingRole.EMITTER;
         this.emit('roleChange', PairingRole.EMITTER);
     }
@@ -38,11 +70,15 @@ export class NFCService {
         if (!this.ndef) throw new Error('NFC not available');
 
         try {
+            // Stop any existing scan first
+            await this.stopScanning();
+
             this.currentRole = PairingRole.RECEIVER;
             this.emit('roleChange', PairingRole.RECEIVER);
 
-            // Start NFC scanning
+            // Start new scan
             await this.ndef.scan();
+            this.isScanning = true;
 
             this.ndef.addEventListener("reading", ({ message, serialNumber }: any) => {
                 this.handleReceivedMessage(message, serialNumber);
@@ -54,6 +90,12 @@ export class NFCService {
             this.emit('roleChange', PairingRole.NONE);
             throw error;
         }
+    }
+
+    async resetRole(): Promise<void> {
+        await this.stopScanning();
+        this.currentRole = PairingRole.NONE;
+        this.emit('roleChange', PairingRole.NONE);
     }
 
     async sendToken(token: OfflineToken): Promise<void> {
@@ -91,11 +133,6 @@ export class NFCService {
 
     getCurrentRole(): PairingRole {
         return this.currentRole;
-    }
-
-    async resetRole(): Promise<void> {
-        this.currentRole = PairingRole.NONE;
-        this.emit('roleChange', PairingRole.NONE);
     }
 
     // Event handling

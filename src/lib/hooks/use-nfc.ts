@@ -1,6 +1,6 @@
 // src/lib/hooks/use-nfc.ts
-import { useState, useEffect } from 'react';
-import { NFCService } from '../nft/service';
+import { useState, useEffect, useRef } from 'react';
+import { NFCService } from '../nfc/service';
 import { PairingRole } from '@/types/bluetooth';
 import { OfflineToken } from '../blockchain/types';
 
@@ -10,6 +10,7 @@ export function useNFCService() {
     const [isEnabled, setIsEnabled] = useState(false);
     const [currentRole, setCurrentRole] = useState<PairingRole>(PairingRole.NONE);
     const [isReady, setIsReady] = useState(false);
+    const checkingRef = useRef(false);
 
     // Create or get the singleton instance
     if (!nfcServiceInstance) {
@@ -18,10 +19,15 @@ export function useNFCService() {
 
     useEffect(() => {
         const checkNFCStatus = async () => {
-            if (nfcServiceInstance) {
+            if (!nfcServiceInstance || checkingRef.current) return;
+
+            checkingRef.current = true;
+            try {
                 const status = await nfcServiceInstance.checkAvailability();
                 setIsEnabled(status.enabled);
                 setIsReady(status.available && status.enabled);
+            } finally {
+                checkingRef.current = false;
             }
         };
 
@@ -33,13 +39,12 @@ export function useNFCService() {
 
         nfcServiceInstance?.on('roleChange', onRoleChange);
 
-        // Initial check and periodic updates
+        // Initial check only - removed periodic updates to prevent scanning conflicts
         checkNFCStatus();
-        const interval = setInterval(checkNFCStatus, 2000);
 
-        // Restore previous state
+        // Restore previous state only if we're not already in a role
         const savedRole = localStorage.getItem('nfcRole') as PairingRole;
-        if (savedRole) {
+        if (savedRole && currentRole === PairingRole.NONE) {
             setCurrentRole(savedRole);
             if (savedRole === PairingRole.EMITTER) {
                 nfcServiceInstance?.startAsEmitter().catch(console.error);
@@ -51,10 +56,9 @@ export function useNFCService() {
         return () => {
             if (nfcServiceInstance) {
                 nfcServiceInstance.off('roleChange', onRoleChange);
-                clearInterval(interval);
             }
         };
-    }, []);
+    }, [currentRole]);
 
     return {
         isEnabled,
