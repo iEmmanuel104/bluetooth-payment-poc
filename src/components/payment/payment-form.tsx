@@ -1,7 +1,7 @@
 // components/payment/payment-form.tsx
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -12,7 +12,8 @@ import { useBluetoothService } from "@/lib/hooks/use-bluetooth";
 import { useNFCService } from "@/lib/hooks/use-nfc";
 import { CommunicationType } from "@/types";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Bluetooth, Loader2, Nfc, Smartphone } from "lucide-react";
+import { Bluetooth, Loader2, Nfc, Smartphone, Wallet } from "lucide-react";
+import { Progress } from "@/components/ui/progress";
 
 interface PaymentFormProps {
     isConnected: boolean;
@@ -23,27 +24,35 @@ export function PaymentForm({ isConnected, communicationType }: PaymentFormProps
     const [amount, setAmount] = useState("");
     const [isSending, setIsSending] = useState(false);
     const { toast } = useToast();
-    const { wallet, createToken } = useWallet();
+    const { wallet, createTransfer } = useWallet();
     const { bluetoothService } = useBluetoothService();
     const { isReady: isNFCReady, state: nfcState, deviceDetected, sendToken: sendNFCToken, startReading, stop } = useNFCService();
 
-    useEffect(() => {
-        // Start NFC reading when component mounts if using NFC
-        if (communicationType === CommunicationType.NFC && isNFCReady) {
-            startReading().catch(console.error);
-        }
+    // Calculate percentage of balance being sent
+    const balancePercentage = amount ? Math.min((Number(amount) / Number(wallet.balance)) * 100, 100) : 0;
 
-        // Cleanup
+    // Memoize NFC functions to prevent dependency warnings
+    const handleStartReading = useCallback(async () => {
+        if (communicationType === CommunicationType.NFC && isNFCReady) {
+            await startReading();
+        }
+    }, [communicationType, isNFCReady, startReading]);
+
+    const handleStop = useCallback(async () => {
+        if (communicationType === CommunicationType.NFC) {
+            await stop();
+        }
+    }, [communicationType, stop]);
+
+    useEffect(() => {
+        handleStartReading();
         return () => {
-            if (communicationType === CommunicationType.NFC) {
-                stop().catch(console.error);
-            }
+            handleStop();
         };
-    }, [communicationType, isNFCReady]);
+    }, [handleStartReading, handleStop]);
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
-
         if (!amount || (!isConnected && communicationType === CommunicationType.BLUETOOTH)) return;
 
         if (communicationType === CommunicationType.NFC && !isNFCReady) {
@@ -57,7 +66,7 @@ export function PaymentForm({ isConnected, communicationType }: PaymentFormProps
 
         setIsSending(true);
         try {
-            const token = await createToken(amount);
+            const token = await createTransfer(amount, "0x0000000000000000000000000000000000000000", "TOKEN");
 
             if (communicationType === CommunicationType.NFC) {
                 toast({
@@ -73,7 +82,6 @@ export function PaymentForm({ isConnected, communicationType }: PaymentFormProps
                 title: "Payment Sent",
                 description: `Successfully sent ${amount} tokens`,
             });
-
             setAmount("");
         } catch (error) {
             console.error("Payment error:", error);
@@ -87,23 +95,17 @@ export function PaymentForm({ isConnected, communicationType }: PaymentFormProps
         }
     };
 
-    const isAmountTooLarge = (amount: string, balance: string): boolean => {
-        try {
-            return BigInt(amount) > BigInt(balance);
-        } catch {
-            return false;
-        }
-    };
-
-    const getSubmitButtonStatus = () => {
-        if (communicationType === CommunicationType.BLUETOOTH) {
-            return !isConnected || !amount || isAmountTooLarge(amount, wallet.balance) || isSending;
-        }
-        return !amount || !isNFCReady || isAmountTooLarge(amount, wallet.balance) || isSending;
+    const isDisabled = () => {
+        if (isSending) return true;
+        if (!amount) return true;
+        if (BigInt(amount) > BigInt(wallet.balance)) return true;
+        if (communicationType === CommunicationType.BLUETOOTH && !isConnected) return true;
+        if (communicationType === CommunicationType.NFC && !isNFCReady) return true;
+        return false;
     };
 
     return (
-        <Card>
+        <Card className="relative overflow-hidden">
             <CardHeader>
                 <div className="flex items-center justify-between">
                     <CardTitle>Send Payment</CardTitle>
@@ -150,33 +152,50 @@ export function PaymentForm({ isConnected, communicationType }: PaymentFormProps
                     </>
                 )}
 
-                <form onSubmit={handleSubmit} className="space-y-4">
+                <form onSubmit={handleSubmit} className="space-y-6">
                     <div className="space-y-2">
-                        <Label htmlFor="amount">Amount</Label>
-                        <div className="relative">
-                            <Input
-                                id="amount"
-                                type="text"
-                                pattern="[0-9]*"
-                                value={amount}
-                                onChange={(e) => {
-                                    if (/^\d*$/.test(e.target.value)) {
-                                        setAmount(e.target.value);
-                                    }
-                                }}
-                                placeholder="Enter amount"
-                                disabled={isSending || (communicationType === CommunicationType.BLUETOOTH && !isConnected)}
-                                className="pr-16"
-                            />
-                            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">TOKEN</span>
+                        <div className="flex justify-between">
+                            <Label htmlFor="amount">Amount</Label>
+                            <span className="text-sm text-muted-foreground">Balance: {wallet.balance} TOKEN</span>
                         </div>
-                        {amount && (
-                            <p className="text-sm text-muted-foreground">
-                                Balance after transfer: {wallet.balance && amount ? (BigInt(wallet.balance) - BigInt(amount)).toString() : "0"} TOKEN
-                            </p>
-                        )}
+
+                        <div className="space-y-3">
+                            <div className="relative">
+                                <Input
+                                    id="amount"
+                                    type="text"
+                                    pattern="[0-9]*"
+                                    value={amount}
+                                    onChange={(e) => {
+                                        if (/^\d*$/.test(e.target.value)) {
+                                            setAmount(e.target.value);
+                                        }
+                                    }}
+                                    placeholder="Enter amount"
+                                    disabled={isDisabled()}
+                                    className="pr-16"
+                                />
+                                <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center space-x-2">
+                                    <Wallet className="h-4 w-4 text-muted-foreground" />
+                                    <span className="text-sm text-muted-foreground">TOKEN</span>
+                                </div>
+                            </div>
+
+                            {amount && (
+                                <div className="space-y-1">
+                                    <Progress value={balancePercentage} className="h-2" />
+                                    <div className="flex justify-between text-sm">
+                                        <span className="text-muted-foreground">
+                                            Remaining: {(BigInt(wallet.balance) - BigInt(amount)).toString()} TOKEN
+                                        </span>
+                                        <span className="text-muted-foreground">{balancePercentage.toFixed(1)}%</span>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
                     </div>
-                    <Button type="submit" className="w-full" disabled={getSubmitButtonStatus()}>
+
+                    <Button type="submit" className="w-full" disabled={isDisabled()}>
                         {isSending ? (
                             <>
                                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
