@@ -10,6 +10,7 @@ export function useNFCService() {
     const [isEnabled, setIsEnabled] = useState(false);
     const [state, setState] = useState<'inactive' | 'reading' | 'writing'>('inactive');
     const [isReady, setIsReady] = useState(false);
+    const [deviceDetected, setDeviceDetected] = useState(false);
     const checkingRef = useRef(false);
     const { toast } = useToast();
 
@@ -44,8 +45,21 @@ export function useNFCService() {
             });
         };
 
+        const onDeviceDetected = () => {
+            setDeviceDetected(true);
+            toast({
+                title: "NFC Device Detected",
+                description: "Device is ready for payment transfer",
+                duration: 3000,
+            });
+
+            // Reset device detected state after a delay
+            setTimeout(() => setDeviceDetected(false), 3000);
+        };
+
         nfcServiceInstance?.on('stateChange', onStateChange);
         nfcServiceInstance?.on('permissionNeeded', onPermissionNeeded);
+        nfcServiceInstance?.on('deviceDetected', onDeviceDetected);
 
         // Initial check
         checkNFCStatus();
@@ -54,6 +68,7 @@ export function useNFCService() {
             if (nfcServiceInstance) {
                 nfcServiceInstance.off('stateChange', onStateChange);
                 nfcServiceInstance.off('permissionNeeded', onPermissionNeeded);
+                nfcServiceInstance.off('deviceDetected', onDeviceDetected);
             }
         };
     }, [toast]);
@@ -75,6 +90,7 @@ export function useNFCService() {
     const stop = async () => {
         try {
             await nfcServiceInstance?.stop();
+            setDeviceDetected(false);
         } catch (error) {
             console.error('Failed to stop NFC:', error);
             throw error;
@@ -102,6 +118,7 @@ export function useNFCService() {
         isEnabled,
         isReady,
         state,
+        deviceDetected,
         startReading,
         stop,
         sendToken,

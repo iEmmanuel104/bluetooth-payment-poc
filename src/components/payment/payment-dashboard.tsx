@@ -14,6 +14,7 @@ import { ReceivedPaymentNotification } from "./received-payment-notification";
 import { useBluetoothService } from "@/lib/hooks/use-bluetooth";
 import { useNFCService } from "@/lib/hooks/use-nfc";
 import { CommunicationType } from "@/types";
+import { Alert, AlertDescription } from "../ui/alert";
 // import { PairingRole } from "@/types/bluetooth";
 
 type PaymentMode = "none" | "sending" | "receiving";
@@ -28,7 +29,7 @@ export function PaymentDashboard() {
     // Service hooks
     const { isConnected: isBluetoothConnected, bluetoothService } = useBluetoothService();
 
-    const { isReady: isNFCReady, state: nfcState, startReading, stop, onTokenReceived } = useNFCService();
+    const { isReady: isNFCReady, state: nfcState, deviceDetected, startReading, stop, onTokenReceived } = useNFCService();
 
     // Determine current connection state based on active communication type
     const isConnected = communicationType === CommunicationType.BLUETOOTH ? isBluetoothConnected : isNFCReady;
@@ -165,6 +166,45 @@ export function PaymentDashboard() {
         );
     }
 
+    const renderNFCCard = () => (
+        <Card>
+            <CardHeader>
+                <div className="flex justify-between items-center">
+                    <CardTitle>{paymentMode === "sending" ? "Ready to Send" : "Ready to Receive"}</CardTitle>
+                    {deviceDetected && (
+                        <span className="text-xs bg-blue-100 text-blue-800 px-3 py-1 rounded-full flex items-center gap-2 animate-pulse">
+                            <Nfc className="h-3 w-3" />
+                            Device Detected
+                        </span>
+                    )}
+                </div>
+            </CardHeader>
+            <CardContent>
+                <div className="space-y-4">
+                    {deviceDetected ? (
+                        <Alert className="border-blue-200 bg-blue-50">
+                            <Nfc className="h-4 w-4 text-blue-500" />
+                            <AlertDescription className="text-blue-700">
+                                NFC device detected! {paymentMode === "sending" ? "Complete the payment to transfer." : "Waiting for payment data..."}
+                            </AlertDescription>
+                        </Alert>
+                    ) : (
+                        <p className="text-muted-foreground">
+                            Hold your device close to the {paymentMode === "sending" ? "receiver's" : "sender's"} device
+                        </p>
+                    )}
+                    {paymentMode === "sending" && <PaymentForm isConnected={isConnected} communicationType={communicationType} />}
+                    {nfcState !== "inactive" && !deviceDetected && (
+                        <div className="flex items-center gap-2 text-sm text-green-600">
+                            <Nfc className="h-4 w-4" />
+                            NFC {nfcState === "reading" ? "Ready" : "Active"}
+                        </div>
+                    )}
+                </div>
+            </CardContent>
+        </Card>
+    );
+
     // Active mode view
     return (
         <div className="space-y-6">
@@ -175,7 +215,7 @@ export function PaymentDashboard() {
                 </Button>
             </div>
 
-            {communicationType === CommunicationType.BLUETOOTH && (
+            {communicationType === CommunicationType.BLUETOOTH ? (
                 <>
                     <DeviceList />
                     {paymentMode === "sending" && <PaymentForm isConnected={isConnected} communicationType={communicationType} />}
@@ -191,23 +231,8 @@ export function PaymentDashboard() {
                         </Card>
                     )}
                 </>
-            )}
-
-            {communicationType === CommunicationType.NFC && (
-                <Card>
-                    <CardHeader>
-                        <CardTitle>{paymentMode === "sending" ? "Ready to Send" : "Ready to Receive"}</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                        <div className="space-y-4">
-                            <p className="text-muted-foreground">
-                                Hold your device close to the {paymentMode === "sending" ? "receiver's" : "sender's"} device
-                            </p>
-                            {paymentMode === "sending" && <PaymentForm isConnected={isConnected} communicationType={communicationType} />}
-                            {nfcState !== "inactive" && <p className="text-sm text-green-600">NFC {nfcState === "reading" ? "Ready" : "Active"}</p>}
-                        </div>
-                    </CardContent>
-                </Card>
+            ) : (
+                renderNFCCard()
             )}
 
             <TokenList />

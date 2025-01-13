@@ -25,7 +25,7 @@ export function PaymentForm({ isConnected, communicationType }: PaymentFormProps
     const { toast } = useToast();
     const { wallet, createToken } = useWallet();
     const { bluetoothService } = useBluetoothService();
-    const { isReady: isNFCReady, state: nfcState, sendToken: sendNFCToken, startReading, stop } = useNFCService();
+    const { isReady: isNFCReady, state: nfcState, deviceDetected, sendToken: sendNFCToken, startReading, stop } = useNFCService();
 
     useEffect(() => {
         // Start NFC reading when component mounts if using NFC
@@ -122,17 +122,32 @@ export function PaymentForm({ isConnected, communicationType }: PaymentFormProps
                                         {nfcState === "reading" ? "Ready" : "Sending"}
                                     </span>
                                 )}
+                                {deviceDetected && (
+                                    <span className="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded-full animate-pulse">Device Detected</span>
+                                )}
                             </>
                         )}
                     </div>
                 </div>
             </CardHeader>
             <CardContent>
-                {communicationType === CommunicationType.NFC && !isNFCReady && (
-                    <Alert className="mb-4">
-                        <Smartphone className="h-4 w-4" />
-                        <AlertDescription>Please enable NFC on your device to make payments</AlertDescription>
-                    </Alert>
+                {communicationType === CommunicationType.NFC && (
+                    <>
+                        {!isNFCReady && (
+                            <Alert className="mb-4">
+                                <Smartphone className="h-4 w-4" />
+                                <AlertDescription>Please enable NFC on your device to make payments</AlertDescription>
+                            </Alert>
+                        )}
+                        {deviceDetected && (
+                            <Alert className="mb-4 border-blue-200 bg-blue-50">
+                                <Nfc className="h-4 w-4 text-blue-500" />
+                                <AlertDescription className="text-blue-700">
+                                    NFC device detected! Hold steady to complete the transfer.
+                                </AlertDescription>
+                            </Alert>
+                        )}
+                    </>
                 )}
 
                 <form onSubmit={handleSubmit} className="space-y-4">
