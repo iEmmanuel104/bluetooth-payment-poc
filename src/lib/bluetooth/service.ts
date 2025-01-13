@@ -19,59 +19,67 @@ export class BluetoothService {
     private discoveredDevices: Set<BluetoothDevice> = new Set();
     private currentRole: PairingRole = PairingRole.NONE;
     private advertising: boolean = false;
+    private lastConnectedDeviceId: string | null = null;
 
     constructor() {
-        // Check if we're in a browser environment
-        if (typeof window !== 'undefined') {
-            // Try to restore role from localStorage
-            const savedRole = localStorage.getItem('bluetoothRole') as PairingRole;
-            if (savedRole) {
-                this.currentRole = savedRole;
-            }
-        }
+        // No localStorage initialization needed
     }
 
-    // Safe localStorage wrapper
-    private safeLocalStorage(operation: 'get' | 'set' | 'remove', key: string, value?: string): string | null {
-        if (typeof window === 'undefined') return null;
-
-        try {
-            switch (operation) {
-                case 'get':
-                    return localStorage.getItem(key);
-                case 'set':
-                    localStorage.setItem(key, value!);
-                    return null;
-                case 'remove':
-                    localStorage.removeItem(key);
-                    return null;
-                default:
-                    return null;
-            }
-        } catch (error) {
-            console.warn('localStorage operation failed:', error);
-            return null;
-        }
-    }
-
-    // Update other methods to use safeLocalStorage
     public async tryReconnect(): Promise<void> {
-        const lastDeviceId = this.safeLocalStorage('get', 'lastConnectedDevice');
-        if (lastDeviceId && this.currentRole === PairingRole.EMITTER) {
+        if (this.lastConnectedDeviceId && this.currentRole === PairingRole.EMITTER) {
             try {
                 const device = Array.from(this.discoveredDevices)
-                    .find(d => d.id === lastDeviceId);
+                    .find(d => d.id === this.lastConnectedDeviceId);
 
                 if (device) {
-                    await this.connectToDevice(lastDeviceId);
+                    await this.connectToDevice(this.lastConnectedDeviceId);
                 } else {
                     await this.startScanning();
-                    await this.connectToDevice(lastDeviceId);
+                    await this.connectToDevice(this.lastConnectedDeviceId);
                 }
             } catch (error) {
                 console.warn('Failed to reconnect to last device:', error);
                 throw error;
             }
+        }
+    }
+
+    // Rest of the methods remain the same, but remove all localStorage calls
+    async connectToDevice(deviceId: string): Promise<void> {
+        if (this.currentRole !== PairingRole.EMITTER) {
+            throw new Error('Must be in emitter mode to connect to devices');
+        }
+
+        const device = Array.from(this.discoveredDevices)
+            .find(d => d.id === deviceId);
+
+        if (!device) {
+            throw new Error('Device not found');
+        }
+
+        try {
+            this.device = device;
+            const gattServer = await device.gatt?.connect();
+            this.server = gattServer ?? null;
+            this.lastConnectedDeviceId = deviceId; // Store in memory instead of localStorage
+
+            if (!this.server) {
+                throw new Error('Failed to connect to GATT server');
+            }
+
+            const service = await this.server.getPrimaryService(PaymentProtocol.SERVICE_UUID);
+            await service.getCharacteristic(PaymentProtocol.TOKEN_CHAR_UUID);
+
+            this.emit('connectionChange', true);
+
+            device.addEventListener('gattserverdisconnected', () => {
+                this.handleDisconnection(device);
+            });
+        } catch (error) {
+            console.error('Error connecting to device:', error);
+            this.device = null;
+            this.server = null;
+            throw error;
         }
     }
 
@@ -166,59 +174,6 @@ export class BluetoothService {
             return Array.from(this.discoveredDevices).map(d => this.deviceToInfo(d));
         } catch (error) {
             console.error('Error scanning for devices:', error);
-            throw error;
-        }
-    }
-
-
-    // Connect to a specific device
-    async connectToDevice(deviceId: string): Promise<void> {
-        if (this.currentRole !== PairingRole.EMITTER) {
-            throw new Error('Must be in emitter mode to connect to devices');
-        }
-
-        const device = Array.from(this.discoveredDevices)
-            .find(d => d.id === deviceId);
-
-        if (!device) {
-            throw new Error('Device not found');
-        }
-
-        try {
-            this.device = device;
-            const gattServer = await device.gatt?.connect();
-            this.server = gattServer ?? null;
-
-            if (!this.server) {
-                throw new Error('Failed to connect to GATT server');
-            }
-
-            // Set up services and characteristics
-            if (!this.server) {
-                throw new Error('GATT server is not connected');
-            }
-            if (!this.server) {
-                throw new Error('GATT server is not connected');
-            }
-            if (!this.server) {
-                throw new Error('GATT server is not connected');
-            }
-            if (!this.server) {
-                throw new Error('GATT server is not connected');
-            }
-            const service = await this.server.getPrimaryService(PaymentProtocol.SERVICE_UUID);
-            await service.getCharacteristic(PaymentProtocol.TOKEN_CHAR_UUID);
-
-            this.emit('connectionChange', true);
-
-            // Set up disconnect listener
-            device.addEventListener('gattserverdisconnected', () => {
-                this.handleDisconnection(device);
-            });
-        } catch (error) {
-            console.error('Error connecting to device:', error);
-            this.device = null;
-            this.server = null;
             throw error;
         }
     }
@@ -437,8 +392,7 @@ export class BluetoothService {
         }
         this.device = null;
         this.server = null;
-        localStorage.removeItem('lastConnectedDevice');
-        localStorage.removeItem('bluetoothConnected');
+        this.lastConnectedDeviceId = null;
         this.emit('connectionChange', false);
     }
 }

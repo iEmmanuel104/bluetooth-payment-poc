@@ -7,38 +7,21 @@ export class OfflineBlockchainService {
     private _wallet: ethers.BaseWallet;
     private pendingTransfers: Map<string, OfflineToken>;
     private listeners: Map<string, ((data?: any) => void)[]>;
+    private static instance: OfflineBlockchainService | null = null;
 
-    constructor() {
-        // Initialize listeners
+    private constructor() {
         this.listeners = new Map();
         this.pendingTransfers = new Map();
 
-        // Only initialize wallet if we're in the browser
-        if (typeof window !== 'undefined') {
-            // Generate deterministic wallet from local storage seed
-            const storedSeed = localStorage.getItem('walletSeed');
-            let privateKey: string;
+        // Create a new wallet every time - for production you'd want to persist this securely
+        this._wallet = ethers.Wallet.createRandom();
+    }
 
-            if (storedSeed) {
-                // If we have a stored seed phrase, derive the private key
-                const hdNode = ethers.HDNodeWallet.fromPhrase(storedSeed);
-                privateKey = hdNode.privateKey;
-            } else {
-                // Generate a new wallet and store its seed phrase
-                const wallet = ethers.Wallet.createRandom();
-                localStorage.setItem('walletSeed', wallet.mnemonic?.phrase || '');
-                privateKey = wallet.privateKey;
-            }
-
-            // Create wallet from private key
-            this._wallet = new ethers.Wallet(privateKey);
-
-            // Load pending transfers from localStorage
-            this.loadPendingTransfers();
-        } else {
-            // Create a temporary wallet for SSR
-            this._wallet = ethers.Wallet.createRandom();
+    public static getInstance(): OfflineBlockchainService {
+        if (!OfflineBlockchainService.instance) {
+            OfflineBlockchainService.instance = new OfflineBlockchainService();
         }
+        return OfflineBlockchainService.instance;
     }
 
     get walletAddress(): string {
@@ -50,7 +33,6 @@ export class OfflineBlockchainService {
         callbacks.forEach(callback => callback(data));
     }
 
-    // Event handling methods
     on(event: string, callback: (data?: any) => void): void {
         if (!this.listeners.has(event)) {
             this.listeners.set(event, []);
@@ -64,19 +46,6 @@ export class OfflineBlockchainService {
             const index = callbacks.indexOf(callback);
             if (index !== -1) {
                 callbacks.splice(index, 1);
-            }
-        }
-    }
-
-    private loadPendingTransfers(): void {
-        const stored = localStorage.getItem('pendingTransfers');
-        if (stored) {
-            try {
-                const entries = JSON.parse(stored);
-                this.pendingTransfers = new Map(entries);
-                this.emit('transfersLoaded', Array.from(this.pendingTransfers.values()));
-            } catch (error) {
-                console.error('Error loading pending transfers:', error);
             }
         }
     }
@@ -100,18 +69,26 @@ export class OfflineBlockchainService {
             onchainStatus: null
         };
 
-        // Create signature for offline verification
         const message = this.createSignMessage(offlineToken);
         offlineToken.signature = await this._wallet.signMessage(message);
 
-        // Store in pending transfers
         this.pendingTransfers.set(transferId, offlineToken);
-        this.savePendingTransfers();
-
-        // Emit event
         this.emit('transferCreated', offlineToken);
 
         return offlineToken;
+    }
+
+    private loadPendingTransfers(): void {
+        const stored = localStorage.getItem('pendingTransfers');
+        if (stored) {
+            try {
+                const entries = JSON.parse(stored);
+                this.pendingTransfers = new Map(entries);
+                this.emit('transfersLoaded', Array.from(this.pendingTransfers.values()));
+            } catch (error) {
+                console.error('Error loading pending transfers:', error);
+            }
+        }
     }
 
     async receiveOfflineTransfer(token: OfflineToken): Promise<OfflineToken> {

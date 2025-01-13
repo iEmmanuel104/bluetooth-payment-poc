@@ -4,6 +4,7 @@ import { BluetoothService } from '../bluetooth/service';
 import { PairingRole } from '@/types/bluetooth';
 import { OfflineToken } from '../blockchain/types';
 
+// Store the singleton instance outside of the component
 let bluetoothServiceInstance: BluetoothService | null = null;
 
 export function useBluetoothService() {
@@ -18,41 +19,26 @@ export function useBluetoothService() {
     useEffect(() => {
         if (!isClient) return;
 
-        // Create or get the singleton instance
+        // Create or get the singleton instance only on the client side
         if (!bluetoothServiceInstance) {
             bluetoothServiceInstance = new BluetoothService();
         }
 
-        // Set up event listeners
         const onConnectionChange = (connected: boolean) => {
             console.log('Connection changed:', connected);
             setIsConnected(connected);
-            localStorage.setItem('bluetoothConnected', String(connected));
         };
 
         const onRoleChange = (role: PairingRole) => {
             console.log('Role changed:', role);
             setCurrentRole(role);
-            localStorage.setItem('bluetoothRole', role);
         };
 
-        bluetoothServiceInstance?.on('connectionChange', onConnectionChange);
-        bluetoothServiceInstance?.on('roleChange', onRoleChange);
+        bluetoothServiceInstance.on('connectionChange', onConnectionChange);
+        bluetoothServiceInstance.on('roleChange', onRoleChange);
 
-        // Restore previous state
-        const savedRole = localStorage.getItem('bluetoothRole') as PairingRole;
-        if (savedRole) {
-            setCurrentRole(savedRole);
-            if (savedRole === PairingRole.EMITTER) {
-                bluetoothServiceInstance?.startAsEmitter()
-                    .then(() => bluetoothServiceInstance?.tryReconnect())
-                    .catch(console.error);
-            } else if (savedRole === PairingRole.RECEIVER) {
-                bluetoothServiceInstance?.advertiseAsReceiver().catch(console.error);
-            }
-        }
+        // No need to restore previous state since we're not using localStorage
 
-        // Cleanup listeners on unmount
         return () => {
             if (bluetoothServiceInstance) {
                 bluetoothServiceInstance.off('connectionChange', onConnectionChange);
@@ -61,6 +47,7 @@ export function useBluetoothService() {
         };
     }, [isClient]);
 
+    // Return null or default values during SSR
     if (!isClient) {
         return {
             isConnected: false,
@@ -72,12 +59,16 @@ export function useBluetoothService() {
         };
     }
 
+    // Return actual values on client side
     return {
         isConnected,
         currentRole,
         bluetoothService: bluetoothServiceInstance,
         sendToken: async (token: OfflineToken) => {
-            await bluetoothServiceInstance?.sendToken(token);
+            if (!bluetoothServiceInstance) {
+                throw new Error('Bluetooth service not initialized');
+            }
+            await bluetoothServiceInstance.sendToken(token);
         }
     };
 }
