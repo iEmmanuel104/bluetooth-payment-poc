@@ -1,9 +1,8 @@
 // components/payment/token-list.tsx
-import React, { useEffect, useState } from "react";
+import React from "react";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { useBluetoothService } from "@/lib/hooks/use-bluetooth";
 import { PairingRole } from "@/types/bluetooth";
-import { OfflineToken } from "@/lib/blockchain/types";
 import { useOfflineWallet } from "@/lib/hooks/use-offline-wallet";
 
 export function TokenList() {

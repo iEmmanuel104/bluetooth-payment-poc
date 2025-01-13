@@ -70,8 +70,8 @@ export interface ICommunicationService {
     checkAvailability(): Promise<{ available: boolean; enabled: boolean; }>;
     startScanning?(): Promise<BluetoothDeviceInfo[]>;
     connectToDevice?(deviceId: string): Promise<void>;
-    on(event: string, callback: Function): void;
-    off(event: string, callback: Function): void;
+    on(event: string, callback: (event: string) => void): void;
+    off(event: string, callback: (event: string) => void): void;
 }
 // Common event types for both services
 

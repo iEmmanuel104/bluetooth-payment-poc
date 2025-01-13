@@ -1,7 +1,6 @@
 // src/lib/hooks/use-bluetooth.ts
 import { useState, useEffect } from 'react';
 import { BluetoothService } from '../bluetooth/service';
-import { Token } from '@/types';
 import { PairingRole } from '@/types/bluetooth';
 import { OfflineToken } from '../blockchain/types';
 

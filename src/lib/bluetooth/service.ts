@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 // lib/bluetooth/service.ts
 import { Token } from '@/types';
 import { PaymentProtocol } from './protocol';
@@ -14,7 +15,7 @@ export interface BluetoothDeviceInfo {
 export class BluetoothService {
     private device: BluetoothDevice | null = null;
     private server: BluetoothRemoteGATTServer | null = null;
-    private listeners: Map<string, Function[]> = new Map();
+    private listeners: Map<string, ((data: any) => void)[]> = new Map();
     private discoveredDevices: Set<BluetoothDevice> = new Set();
     private currentRole: PairingRole = PairingRole.NONE;
     private advertising: boolean = false;
@@ -104,7 +105,6 @@ export class BluetoothService {
     
     // Start scanning for devices
     async startScanning(): Promise<BluetoothDeviceInfo[]> {
-        const DEV_MODE = true;
         if (!navigator.bluetooth) {
             throw new Error('Bluetooth is not available');
         }
@@ -359,14 +359,14 @@ export class BluetoothService {
     }
 
     // Event handling methods
-    on(event: string, callback: Function): void {
+    on(event: string, callback: (data: any) => void): void {
         if (!this.listeners.has(event)) {
             this.listeners.set(event, []);
         }
         this.listeners.get(event)?.push(callback);
     }
 
-    off(event: string, callback: Function): void {
+    off(event: string, callback: (data: any) => void): void {
         const listeners = this.listeners.get(event);
         if (listeners) {
             const index = listeners.indexOf(callback);

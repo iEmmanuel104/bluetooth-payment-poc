@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import { Loader2, Bluetooth, BluetoothOff, BluetoothSearching, Nfc } from "lucide-react";
+import { Loader2, Bluetooth, BluetoothOff, BluetoothSearching } from "lucide-react";
 import { useToast } from "@/components/ui/use-toast";
 import { PairingRole } from "@/types/bluetooth";
 import type { BluetoothDeviceInfo } from '@/types';

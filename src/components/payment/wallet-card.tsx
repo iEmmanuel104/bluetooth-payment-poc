@@ -9,7 +9,7 @@ import { useToast } from "@/components/ui/use-toast";
 import { useState } from "react";
 
 export function WalletCard() {
-    const { wallet, refreshWallet, getConfirmedBalance, getPendingBalance } = useWallet();
+    const { wallet, refreshWallet, getPendingBalance } = useWallet();
     const { toast } = useToast();
     const [isRefreshing, setIsRefreshing] = useState(false);
 
