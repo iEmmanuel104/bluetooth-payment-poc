@@ -9,13 +9,20 @@ let bluetoothServiceInstance: BluetoothService | null = null;
 export function useBluetoothService() {
     const [isConnected, setIsConnected] = useState(false);
     const [currentRole, setCurrentRole] = useState<PairingRole>(PairingRole.NONE);
-
-    // Create or get the singleton instance
-    if (!bluetoothServiceInstance) {
-        bluetoothServiceInstance = new BluetoothService();
-    }
+    const [isClient, setIsClient] = useState(false);
 
     useEffect(() => {
+        setIsClient(true);
+    }, []);
+
+    useEffect(() => {
+        if (!isClient) return;
+
+        // Create or get the singleton instance
+        if (!bluetoothServiceInstance) {
+            bluetoothServiceInstance = new BluetoothService();
+        }
+
         // Set up event listeners
         const onConnectionChange = (connected: boolean) => {
             console.log('Connection changed:', connected);
@@ -52,7 +59,18 @@ export function useBluetoothService() {
                 bluetoothServiceInstance.off('roleChange', onRoleChange);
             }
         };
-    }, []);
+    }, [isClient]);
+
+    if (!isClient) {
+        return {
+            isConnected: false,
+            currentRole: PairingRole.NONE,
+            bluetoothService: null,
+            sendToken: async () => {
+                throw new Error('Bluetooth not available during server-side rendering');
+            }
+        };
+    }
 
     return {
         isConnected,

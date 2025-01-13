@@ -11,27 +11,34 @@ export class OfflineBlockchainService {
     constructor() {
         // Initialize listeners
         this.listeners = new Map();
-
-        // Generate deterministic wallet from local storage seed
-        const storedSeed = localStorage.getItem('walletSeed');
-        let privateKey: string;
-        if (storedSeed) {
-            // If we have a stored seed phrase, derive the private key
-            const hdNode = ethers.HDNodeWallet.fromPhrase(storedSeed);
-            privateKey = hdNode.privateKey;
-        } else {
-            // Generate a new wallet and store its seed phrase
-            const wallet = ethers.Wallet.createRandom();
-            localStorage.setItem('walletSeed', wallet.mnemonic?.phrase || '');
-            privateKey = wallet.privateKey;
-        }
-
-        // Create wallet from private key
-        this._wallet = new ethers.Wallet(privateKey);
         this.pendingTransfers = new Map();
 
-        // Load pending transfers from localStorage
-        this.loadPendingTransfers();
+        // Only initialize wallet if we're in the browser
+        if (typeof window !== 'undefined') {
+            // Generate deterministic wallet from local storage seed
+            const storedSeed = localStorage.getItem('walletSeed');
+            let privateKey: string;
+
+            if (storedSeed) {
+                // If we have a stored seed phrase, derive the private key
+                const hdNode = ethers.HDNodeWallet.fromPhrase(storedSeed);
+                privateKey = hdNode.privateKey;
+            } else {
+                // Generate a new wallet and store its seed phrase
+                const wallet = ethers.Wallet.createRandom();
+                localStorage.setItem('walletSeed', wallet.mnemonic?.phrase || '');
+                privateKey = wallet.privateKey;
+            }
+
+            // Create wallet from private key
+            this._wallet = new ethers.Wallet(privateKey);
+
+            // Load pending transfers from localStorage
+            this.loadPendingTransfers();
+        } else {
+            // Create a temporary wallet for SSR
+            this._wallet = ethers.Wallet.createRandom();
+        }
     }
 
     get walletAddress(): string {

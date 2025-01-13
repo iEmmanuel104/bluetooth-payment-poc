@@ -21,26 +21,50 @@ export class BluetoothService {
     private advertising: boolean = false;
 
     constructor() {
-        // Try to restore role from localStorage
-        const savedRole = localStorage.getItem('bluetoothRole') as PairingRole;
-        if (savedRole) {
-            this.currentRole = savedRole;
+        // Check if we're in a browser environment
+        if (typeof window !== 'undefined') {
+            // Try to restore role from localStorage
+            const savedRole = localStorage.getItem('bluetoothRole') as PairingRole;
+            if (savedRole) {
+                this.currentRole = savedRole;
+            }
         }
     }
 
-    // Make tryReconnect public
+    // Safe localStorage wrapper
+    private safeLocalStorage(operation: 'get' | 'set' | 'remove', key: string, value?: string): string | null {
+        if (typeof window === 'undefined') return null;
+
+        try {
+            switch (operation) {
+                case 'get':
+                    return localStorage.getItem(key);
+                case 'set':
+                    localStorage.setItem(key, value!);
+                    return null;
+                case 'remove':
+                    localStorage.removeItem(key);
+                    return null;
+                default:
+                    return null;
+            }
+        } catch (error) {
+            console.warn('localStorage operation failed:', error);
+            return null;
+        }
+    }
+
+    // Update other methods to use safeLocalStorage
     public async tryReconnect(): Promise<void> {
-        const lastDeviceId = localStorage.getItem('lastConnectedDevice');
+        const lastDeviceId = this.safeLocalStorage('get', 'lastConnectedDevice');
         if (lastDeviceId && this.currentRole === PairingRole.EMITTER) {
             try {
-                // Check if the device is in discoveredDevices
                 const device = Array.from(this.discoveredDevices)
                     .find(d => d.id === lastDeviceId);
 
                 if (device) {
                     await this.connectToDevice(lastDeviceId);
                 } else {
-                    // If device not found, we need to scan first
                     await this.startScanning();
                     await this.connectToDevice(lastDeviceId);
                 }
@@ -102,7 +126,7 @@ export class BluetoothService {
         }
     }
 
-    
+
     // Start scanning for devices
     async startScanning(): Promise<BluetoothDeviceInfo[]> {
         if (!navigator.bluetooth) {
