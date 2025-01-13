@@ -1,14 +1,13 @@
 // src/lib/hooks/use-nfc.ts
 import { useState, useEffect, useRef } from 'react';
 import { NFCService } from '../nfc/service';
-import { PairingRole } from '@/types/bluetooth';
 import { OfflineToken } from '../blockchain/types';
 
 let nfcServiceInstance: NFCService | null = null;
 
 export function useNFCService() {
     const [isEnabled, setIsEnabled] = useState(false);
-    const [currentRole, setCurrentRole] = useState<PairingRole>(PairingRole.NONE);
+    const [state, setState] = useState<'inactive' | 'reading' | 'writing'>('inactive');
     const [isReady, setIsReady] = useState(false);
     const checkingRef = useRef(false);
 
@@ -31,42 +30,57 @@ export function useNFCService() {
             }
         };
 
-        const onRoleChange = (role: PairingRole) => {
-            console.log('NFC Role changed:', role);
-            setCurrentRole(role);
-            localStorage.setItem('nfcRole', role);
+        const onStateChange = (newState: 'inactive' | 'reading' | 'writing') => {
+            setState(newState);
         };
 
-        nfcServiceInstance?.on('roleChange', onRoleChange);
+        nfcServiceInstance?.on('stateChange', onStateChange);
 
-        // Initial check only - removed periodic updates to prevent scanning conflicts
+        // Initial check
         checkNFCStatus();
-
-        // Restore previous state only if we're not already in a role
-        const savedRole = localStorage.getItem('nfcRole') as PairingRole;
-        if (savedRole && currentRole === PairingRole.NONE) {
-            setCurrentRole(savedRole);
-            if (savedRole === PairingRole.EMITTER) {
-                nfcServiceInstance?.startAsEmitter().catch(console.error);
-            } else if (savedRole === PairingRole.RECEIVER) {
-                nfcServiceInstance?.advertiseAsReceiver().catch(console.error);
-            }
-        }
 
         return () => {
             if (nfcServiceInstance) {
-                nfcServiceInstance.off('roleChange', onRoleChange);
+                nfcServiceInstance.off('stateChange', onStateChange);
             }
         };
-    }, [currentRole]);
+    }, []);
+
+    const startReading = async () => {
+        try {
+            await nfcServiceInstance?.startReading();
+        } catch (error) {
+            console.error('Failed to start NFC reading:', error);
+            throw error;
+        }
+    };
+
+    const stop = async () => {
+        try {
+            await nfcServiceInstance?.stop();
+        } catch (error) {
+            console.error('Failed to stop NFC:', error);
+            throw error;
+        }
+    };
+
+    const sendToken = async (token: OfflineToken) => {
+        if (!isReady) {
+            throw new Error('NFC is not ready');
+        }
+        await nfcServiceInstance?.sendToken(token);
+    };
 
     return {
         isEnabled,
         isReady,
-        currentRole,
-        nfcService: nfcServiceInstance,
-        sendToken: async (token: OfflineToken) => {
-            await nfcServiceInstance?.sendToken(token);
+        state,
+        startReading,
+        stop,
+        sendToken,
+        onTokenReceived: (callback: (token: OfflineToken) => void) => {
+            nfcServiceInstance?.on('tokenReceived', callback);
+            return () => nfcServiceInstance?.off('tokenReceived', callback);
         }
     };
 }

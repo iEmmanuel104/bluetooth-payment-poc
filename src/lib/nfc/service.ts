@@ -1,12 +1,22 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 // src/lib/nfc/service.ts
 import { OfflineToken } from '../blockchain/types';
-import { PairingRole } from '@/types/bluetooth';
+
+type NFCEventType = 'readingError' | 'tokenReceived' | 'tokenSent' | 'stateChange';
+type NFCState = 'inactive' | 'reading' | 'writing';
+
+interface NFCEventMap {
+    readingError: Error;
+    tokenReceived: OfflineToken;
+    tokenSent: OfflineToken;
+    stateChange: NFCState;
+}
 
 export class NFCService {
     private ndef: any;
-    private currentRole: PairingRole = PairingRole.NONE;
-    private listeners: Map<string, Function[]> = new Map();
-    private isScanning: boolean = false;
+    private currentState: NFCState = 'inactive';
+    private listeners: Map<NFCEventType, Set<(data: any) => void>> = new Map();
+    private abortController: AbortController | null = null;
 
     constructor() {
         if ('NDEFReader' in window) {
@@ -20,97 +30,74 @@ export class NFCService {
             return { available: false, enabled: false };
         }
 
-        // Only try to scan if we're not already scanning
-        if (!this.isScanning) {
+        if (this.currentState === 'inactive') {
             try {
-                await this.ndef.scan();
-                this.isScanning = true;
+                // Quick test scan
+                const testController = new AbortController();
+                await this.ndef.scan({ signal: testController.signal });
+                testController.abort();
                 return { available: true, enabled: true };
             } catch {
                 return { available: true, enabled: false };
-            } finally {
-                // Stop the test scan
-                try {
-                    await this.stopScanning();
-                } catch (e) {
-                    console.error('Error stopping test scan:', e);
-                }
             }
         }
 
-        // If already scanning, assume NFC is available and enabled
         return { available: true, enabled: true };
     }
 
-    private async stopScanning(): Promise<void> {
-        if (this.ndef && this.isScanning) {
-            // NDEFReader doesn't have a built-in stop method, but we can abort the scan
-            // by creating and triggering an AbortController
-            const abortController = new AbortController();
-            try {
-                await this.ndef.scan({ signal: abortController.signal });
-            } catch (error) {
-                // Expected error when aborting
-            } finally {
-                abortController.abort();
-                this.isScanning = false;
-            }
+    async startReading(): Promise<void> {
+        if (!this.ndef) throw new Error('NFC not available');
+        if (this.currentState !== 'inactive') {
+            await this.stop();
         }
-    }
-
-    async startAsEmitter(): Promise<void> {
-        if (!this.ndef) throw new Error('NFC not available');
-
-        await this.stopScanning();
-        this.currentRole = PairingRole.EMITTER;
-        this.emit('roleChange', PairingRole.EMITTER);
-    }
-
-    async advertiseAsReceiver(): Promise<void> {
-        if (!this.ndef) throw new Error('NFC not available');
 
         try {
-            // Stop any existing scan first
-            await this.stopScanning();
+            this.abortController = new AbortController();
+            await this.ndef.scan({ signal: this.abortController.signal });
 
-            this.currentRole = PairingRole.RECEIVER;
-            this.emit('roleChange', PairingRole.RECEIVER);
-
-            // Start new scan
-            await this.ndef.scan();
-            this.isScanning = true;
-
-            this.ndef.addEventListener("reading", ({ message, serialNumber }: any) => {
-                this.handleReceivedMessage(message, serialNumber);
+            this.ndef.addEventListener("reading", async ({ message }: any) => {
+                try {
+                    await this.handleReceivedMessage(message);
+                } catch (error) {
+                    this.emit('readingError', error as Error);
+                }
             });
 
+            this.updateState('reading');
         } catch (error) {
-            console.error('Error starting NFC receiver:', error);
-            this.currentRole = PairingRole.NONE;
-            this.emit('roleChange', PairingRole.NONE);
+            this.updateState('inactive');
             throw error;
         }
     }
 
-    async resetRole(): Promise<void> {
-        await this.stopScanning();
-        this.currentRole = PairingRole.NONE;
-        this.emit('roleChange', PairingRole.NONE);
+    async stop(): Promise<void> {
+        if (this.abortController) {
+            this.abortController.abort();
+            this.abortController = null;
+        }
+        this.updateState('inactive');
     }
 
     async sendToken(token: OfflineToken): Promise<void> {
         if (!this.ndef) throw new Error('NFC not available');
-        if (this.currentRole !== PairingRole.EMITTER) {
-            throw new Error('Must be in emitter mode to send tokens');
-        }
 
         try {
+            this.updateState('writing');
             const message = this.encodeToken(token);
-            await this.ndef.write({ records: [{ recordType: "text", data: message }] });
+            await this.ndef.write({
+                records: [{
+                    recordType: "text",
+                    data: message,
+                    mediaType: "application/json"
+                }]
+            });
             this.emit('tokenSent', token);
         } catch (error) {
             console.error('Error sending token via NFC:', error);
             throw error;
+        } finally {
+            // Return to previous state or inactive
+            this.updateState('inactive');
         }
     }
 
@@ -118,44 +105,57 @@ export class NFCService {
         return JSON.stringify(token);
     }
 
-    private async handleReceivedMessage(message: any, serialNumber: string): Promise<void> {
-        try {
-            for (const record of message.records) {
-                if (record.recordType === "text") {
+    private async handleReceivedMessage(message: any): Promise<void> {
+        for (const record of message.records) {
+            if (record.recordType === "text" && record.mediaType === "application/json") {
+                try {
                     const tokenData = JSON.parse(record.data);
-                    this.emit('paymentReceived', tokenData);
+                    // Basic validation that the data is an OfflineToken
+                    if (this.validateTokenData(tokenData)) {
+                        this.emit('tokenReceived', tokenData);
+                    }
+                } catch {
+                    this.emit('readingError', new Error('Invalid token data received'));
                 }
             }
-        } catch (error) {
-            console.error('Error processing NFC message:', error);
         }
     }
 
-    getCurrentRole(): PairingRole {
-        return this.currentRole;
+    private validateTokenData(data: any): data is OfflineToken {
+        return (
+            typeof data === 'object' &&
+            data !== null &&
+            typeof data.amount === 'string' &&
+            typeof data.contractAddress === 'string'
+            // Add more validation as needed
+        );
     }
 
-    // Event handling
-    on(event: string, callback: Function): void {
+    private updateState(newState: NFCState): void {
+        if (this.currentState !== newState) {
+            this.currentState = newState;
+            this.emit('stateChange', newState);
+        }
+    }
+
+    getState(): NFCState {
+        return this.currentState;
+    }
+
+    // Typed event handling
+    on<T extends NFCEventType>(event: T, callback: (data: NFCEventMap[T]) => void): void {
         if (!this.listeners.has(event)) {
-            this.listeners.set(event, []);
+            this.listeners.set(event, new Set());
         }
-        this.listeners.get(event)?.push(callback);
+        this.listeners.get(event)?.add(callback);
     }
 
-    off(event: string, callback: Function): void {
-        const listeners = this.listeners.get(event);
-        if (listeners) {
-            const index = listeners.indexOf(callback);
-            if (index > -1) {
-                listeners.splice(index, 1);
-            }
-        }
+    off<T extends NFCEventType>(event: T, callback: (data: NFCEventMap[T]) => void): void {
+        this.listeners.get(event)?.delete(callback);
     }
 
-    private emit(event: string, data: any): void {
-        const listeners = this.listeners.get(event) || [];
-        listeners.forEach(callback => {
+    private emit<T extends NFCEventType>(event: T, data: NFCEventMap[T]): void {
+        this.listeners.get(event)?.forEach(callback => {
             try {
                 callback(data);
             } catch (error) {

@@ -1,7 +1,7 @@
 // components/payment/payment-form.tsx
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -10,7 +10,7 @@ import { useToast } from "@/components/ui/use-toast";
 import { useWallet } from "@/lib/hooks/use-wallet";
 import { useBluetoothService } from "@/lib/hooks/use-bluetooth";
 import { useNFCService } from "@/lib/hooks/use-nfc";
-import { CommunicationType } from '@/types';
+import { CommunicationType } from "@/types";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Bluetooth, Loader2, Nfc, Smartphone } from "lucide-react";
 
@@ -25,13 +25,26 @@ export function PaymentForm({ isConnected, communicationType }: PaymentFormProps
     const { toast } = useToast();
     const { wallet, createToken } = useWallet();
     const { bluetoothService } = useBluetoothService();
-    const { nfcService, isReady: isNFCReady } = useNFCService();
+    const { isReady: isNFCReady, state: nfcState, sendToken: sendNFCToken, startReading, stop } = useNFCService();
+
+    useEffect(() => {
+        // Start NFC reading when component mounts if using NFC
+        if (communicationType === CommunicationType.NFC && isNFCReady) {
+            startReading().catch(console.error);
+        }
+
+        // Cleanup
+        return () => {
+            if (communicationType === CommunicationType.NFC) {
+                stop().catch(console.error);
+            }
+        };
+    }, [communicationType, isNFCReady]);
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
 
-        const service = communicationType === CommunicationType.BLUETOOTH ? bluetoothService : nfcService;
-        if (!amount || (!isConnected && communicationType === CommunicationType.BLUETOOTH) || !service) return;
+        if (!amount || (!isConnected && communicationType === CommunicationType.BLUETOOTH)) return;
 
         if (communicationType === CommunicationType.NFC && !isNFCReady) {
             toast({
@@ -51,9 +64,10 @@ export function PaymentForm({ isConnected, communicationType }: PaymentFormProps
                     title: "Ready to Send",
                     description: "Bring your device close to the receiver's device",
                 });
+                await sendNFCToken(token);
+            } else if (bluetoothService) {
+                await bluetoothService.sendToken(token);
             }
-
-            await service.sendToken(token);
 
             toast({
                 title: "Payment Sent",
@@ -103,6 +117,11 @@ export function PaymentForm({ isConnected, communicationType }: PaymentFormProps
                             <>
                                 <Nfc className={`h-4 w-4 ${isNFCReady ? "text-green-500" : ""}`} />
                                 <span className="text-sm">NFC</span>
+                                {nfcState !== "inactive" && (
+                                    <span className="text-xs bg-green-100 text-green-800 px-2 py-1 rounded-full">
+                                        {nfcState === "reading" ? "Ready" : "Sending"}
+                                    </span>
+                                )}
                             </>
                         )}
                     </div>

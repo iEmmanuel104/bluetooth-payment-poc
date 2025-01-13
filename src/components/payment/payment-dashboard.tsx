@@ -8,100 +8,129 @@ import { TokenList } from "./token-list";
 import { WalletCard } from "./wallet-card";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/use-toast";
-import { PairingRole } from "@/types/bluetooth";
 import { SendIcon, DownloadIcon, Bluetooth, Nfc } from "lucide-react";
 import { DeviceList } from "../bluetooth/device-list";
 import { ReceivedPaymentNotification } from "./received-payment-notification";
 import { useBluetoothService } from "@/lib/hooks/use-bluetooth";
 import { useNFCService } from "@/lib/hooks/use-nfc";
-import { CommunicationType } from '@/types';
+import { CommunicationType } from "@/types";
+// import { PairingRole } from "@/types/bluetooth";
+
+type PaymentMode = "none" | "sending" | "receiving";
 
 export function PaymentDashboard() {
     const [isClient, setIsClient] = useState(false);
     const [communicationType, setCommunicationType] = useState<CommunicationType>(CommunicationType.BLUETOOTH);
+    const [paymentMode, setPaymentMode] = useState<PaymentMode>("none");
     const { toast } = useToast();
     const [isConnecting, setIsConnecting] = useState(false);
 
     // Service hooks
-    const { 
-        isConnected: isBluetoothConnected, 
-        currentRole: bluetoothRole, 
-        bluetoothService 
-    } = useBluetoothService();
+    const { isConnected: isBluetoothConnected, bluetoothService } = useBluetoothService();
 
-    const { 
-        isReady: isNFCReady, 
-        currentRole: nfcRole, 
-        nfcService 
-    } = useNFCService();
+    const { isReady: isNFCReady, state: nfcState, startReading, stop, onTokenReceived } = useNFCService();
 
     // Determine current connection state based on active communication type
-    const currentRole = communicationType === CommunicationType.BLUETOOTH ? bluetoothRole : nfcRole;
-    const service = communicationType === CommunicationType.BLUETOOTH ? bluetoothService : nfcService;
     const isConnected = communicationType === CommunicationType.BLUETOOTH ? isBluetoothConnected : isNFCReady;
 
     useEffect(() => {
         setIsClient(true);
-    }, []);
+
+        // Set up NFC token received listener
+        if (communicationType === CommunicationType.NFC) {
+            const unsubscribe = onTokenReceived((token) => {
+                toast({
+                    title: "Payment Received",
+                    description: `Received ${token.amount} tokens`,
+                });
+            });
+
+            return () => {
+                unsubscribe();
+                stop().catch(console.error);
+            };
+        }
+    }, [communicationType]);
 
     if (!isClient) return null;
 
-    const handleRoleSelect = async (role: PairingRole) => {
-        if (!service) {
-            toast({
-                title: "Error",
-                description: `${communicationType} service not available`,
-                variant: "destructive",
-            });
-            return;
-        }
-
-        setIsConnecting(true);
-        try {
-            await service.resetRole();
-
-            if (role === PairingRole.EMITTER) {
-                await service.startAsEmitter();
+    const handleModeSelect = async (mode: PaymentMode) => {
+        if (communicationType === CommunicationType.BLUETOOTH) {
+            if (!bluetoothService) {
                 toast({
-                    title: "Send Mode Active",
-                    description: communicationType === CommunicationType.BLUETOOTH 
-                        ? "Ready to scan for receivers" 
-                        : "Ready to send payments via NFC",
+                    title: "Error",
+                    description: "Bluetooth service not available",
+                    variant: "destructive",
                 });
-            } else if (role === PairingRole.RECEIVER) {
-                await service.advertiseAsReceiver();
-                toast({
-                    title: "Receive Mode Active",
-                    description: communicationType === CommunicationType.BLUETOOTH 
-                        ? "Ready to receive payments" 
-                        : "Ready to receive payments via NFC",
-                });
+                return;
             }
-        } catch (error) {
-            console.error("Error:", error);
-            toast({
-                title: "Error",
-                description: (error as Error).message,
-                variant: "destructive",
-            });
-        } finally {
-            setIsConnecting(false);
+
+            setIsConnecting(true);
+            try {
+                await bluetoothService.resetRole();
+
+                if (mode === "sending") {
+                    await bluetoothService.startAsEmitter();
+                    toast({
+                        title: "Send Mode Active",
+                        description: "Ready to scan for receivers",
+                    });
+                } else if (mode === "receiving") {
+                    await bluetoothService.advertiseAsReceiver();
+                    toast({
+                        title: "Receive Mode Active",
+                        description: "Ready to receive payments",
+                    });
+                }
+            } catch (error) {
+                console.error("Error:", error);
+                toast({
+                    title: "Error",
+                    description: (error as Error).message,
+                    variant: "destructive",
+                });
+            } finally {
+                setIsConnecting(false);
+            }
+        } else {
+            // NFC mode
+            try {
+                if (mode === "receiving") {
+                    await startReading();
+                    toast({
+                        title: "Receive Mode Active",
+                        description: "Ready to receive NFC payments",
+                    });
+                }
+                // For sending mode, the NFC reading will be handled by the PaymentForm
+            } catch (error) {
+                console.error("Error:", error);
+                toast({
+                    title: "Error",
+                    description: (error as Error).message,
+                    variant: "destructive",
+                });
+                return;
+            }
         }
+
+        setPaymentMode(mode);
     };
 
-    const toggleCommunicationType = () => {
-        // Reset current role when switching communication types
-        if (service) {
-            service.resetRole().catch(console.error);
+    const toggleCommunicationType = async () => {
+        // Reset current mode
+        if (communicationType === CommunicationType.NFC) {
+            await stop();
+        } else if (bluetoothService) {
+            await bluetoothService.resetRole();
         }
-        
-        setCommunicationType(prev => 
-            prev === CommunicationType.BLUETOOTH ? CommunicationType.NFC : CommunicationType.BLUETOOTH
-        );
+
+        setCommunicationType((prev) => (prev === CommunicationType.BLUETOOTH ? CommunicationType.NFC : CommunicationType.BLUETOOTH));
+        setPaymentMode("none");
     };
 
-    // Role selection view
-    if (currentRole === PairingRole.NONE) {
+    // Mode selection view
+    if (paymentMode === "none") {
         return (
             <div className="space-y-6">
                 <WalletCard />
@@ -111,23 +140,19 @@ export function PaymentDashboard() {
                         <div className="flex justify-between items-center">
                             <CardTitle>Select Payment Mode</CardTitle>
                             <Button variant="outline" size="sm" className="h-12 w-12" onClick={toggleCommunicationType}>
-                                {communicationType === CommunicationType.BLUETOOTH ? (
-                                    <Bluetooth className="h-4 w-4" />
-                                ) : (
-                                    <Nfc className="h-4 w-4" />
-                                )}
+                                {communicationType === CommunicationType.BLUETOOTH ? <Bluetooth className="h-4 w-4" /> : <Nfc className="h-4 w-4" />}
                             </Button>
                         </div>
                     </CardHeader>
                     <CardContent>
                         <div className="grid grid-cols-2 gap-4">
-                            <Button onClick={() => handleRoleSelect(PairingRole.EMITTER)} disabled={isConnecting} className="h-32">
+                            <Button onClick={() => handleModeSelect("sending")} disabled={isConnecting} className="h-32">
                                 <div className="flex flex-col items-center space-y-2">
                                     <SendIcon className="h-8 w-8" />
                                     <span>Send Payment</span>
                                 </div>
                             </Button>
-                            <Button onClick={() => handleRoleSelect(PairingRole.RECEIVER)} disabled={isConnecting} className="h-32">
+                            <Button onClick={() => handleModeSelect("receiving")} disabled={isConnecting} className="h-32">
                                 <div className="flex flex-col items-center space-y-2">
                                     <DownloadIcon className="h-8 w-8" />
                                     <span>Receive Payment</span>
@@ -146,30 +171,22 @@ export function PaymentDashboard() {
             <WalletCard />
             <div className="flex justify-end">
                 <Button variant="outline" size="sm" className="h-12 w-12" onClick={toggleCommunicationType}>
-                    {communicationType === CommunicationType.BLUETOOTH ? (
-                        <Bluetooth className="h-4 w-4" />
-                    ) : (
-                        <Nfc className="h-4 w-4" />
-                    )}
+                    {communicationType === CommunicationType.BLUETOOTH ? <Bluetooth className="h-4 w-4" /> : <Nfc className="h-4 w-4" />}
                 </Button>
             </div>
 
             {communicationType === CommunicationType.BLUETOOTH && (
                 <>
                     <DeviceList />
-                    {currentRole === PairingRole.EMITTER && (
-                        <PaymentForm isConnected={isConnected} communicationType={communicationType}/>
-                    )}
+                    {paymentMode === "sending" && <PaymentForm isConnected={isConnected} communicationType={communicationType} />}
 
-                    {currentRole === PairingRole.RECEIVER && (
+                    {paymentMode === "receiving" && (
                         <Card>
                             <CardHeader>
                                 <CardTitle>Waiting for Payment</CardTitle>
                             </CardHeader>
                             <CardContent>
-                                <p className="text-muted-foreground">
-                                    Your device is ready to receive payments. Keep this screen open.
-                                </p>
+                                <p className="text-muted-foreground">Your device is ready to receive payments. Keep this screen open.</p>
                             </CardContent>
                         </Card>
                     )}
@@ -179,18 +196,15 @@ export function PaymentDashboard() {
             {communicationType === CommunicationType.NFC && (
                 <Card>
                     <CardHeader>
-                        <CardTitle>
-                            {currentRole === PairingRole.EMITTER ? "Ready to Send" : "Ready to Receive"}
-                        </CardTitle>
+                        <CardTitle>{paymentMode === "sending" ? "Ready to Send" : "Ready to Receive"}</CardTitle>
                     </CardHeader>
                     <CardContent>
                         <div className="space-y-4">
                             <p className="text-muted-foreground">
-                                Hold your device close to the {currentRole === PairingRole.EMITTER ? "receiver's" : "sender's"} device
+                                Hold your device close to the {paymentMode === "sending" ? "receiver's" : "sender's"} device
                             </p>
-                            {currentRole === PairingRole.EMITTER && (
-                                <PaymentForm isConnected={isConnected} communicationType={communicationType}/>
-                            )}
+                            {paymentMode === "sending" && <PaymentForm isConnected={isConnected} communicationType={communicationType} />}
+                            {nfcState !== "inactive" && <p className="text-sm text-green-600">NFC {nfcState === "reading" ? "Ready" : "Active"}</p>}
                         </div>
                     </CardContent>
                 </Card>
@@ -199,7 +213,7 @@ export function PaymentDashboard() {
             <TokenList />
             <ReceivedPaymentNotification />
 
-            <Button variant="destructive" onClick={() => handleRoleSelect(PairingRole.NONE)} disabled={isConnecting}>
+            <Button variant="destructive" onClick={() => handleModeSelect("none")} disabled={isConnecting}>
                 Reset Mode
             </Button>
         </div>
