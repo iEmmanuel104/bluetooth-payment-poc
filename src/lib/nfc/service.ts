@@ -2,7 +2,7 @@
 // src/lib/nfc/service.ts
 import { OfflineToken } from '../blockchain/types';
 
-type NFCEventType = 'readingError' | 'tokenReceived' | 'tokenSent' | 'stateChange';
+type NFCEventType = 'readingError' | 'tokenReceived' | 'tokenSent' | 'stateChange' | 'permissionNeeded';
 type NFCState = 'inactive' | 'reading' | 'writing';
 
 interface NFCEventMap {
@@ -10,6 +10,7 @@ interface NFCEventMap {
     tokenReceived: OfflineToken;
     tokenSent: OfflineToken;
     stateChange: NFCState;
+    permissionNeeded: void;
 }
 
 export class NFCService {
@@ -17,6 +18,7 @@ export class NFCService {
     private currentState: NFCState = 'inactive';
     private listeners: Map<NFCEventType, Set<(data: any) => void>> = new Map();
     private abortController: AbortController | null = null;
+    private readingSetup = false;
 
     constructor() {
         if ('NDEFReader' in window) {
@@ -30,39 +32,57 @@ export class NFCService {
             return { available: false, enabled: false };
         }
 
-        if (this.currentState === 'inactive') {
+        try {
+            // Try to get permission
+            await this.requestPermission();
+            return { available: true, enabled: true };
+        } catch (error) {
+            console.error('NFC permission error:', error);
+            return { available: true, enabled: false };
+        }
+    }
+
+    private async requestPermission(): Promise<void> {
+        if ('permissions' in navigator) {
             try {
-                // Quick test scan
-                const testController = new AbortController();
-                await this.ndef.scan({ signal: testController.signal });
-                testController.abort();
-                return { available: true, enabled: true };
-            } catch {
-                return { available: true, enabled: false };
+                const result = await navigator.permissions.query({ name: 'nfc' as PermissionName });
+                if (result.state === 'prompt') {
+                    this.emit('permissionNeeded', undefined);
+                }
+                if (result.state === 'denied') {
+                    throw new Error('NFC permission denied');
+                }
+            } catch (error) {
+                console.error('Permission query error:', error);
+                // Continue anyway as some browsers might not support the permissions API
             }
         }
-
-        return { available: true, enabled: true };
     }
 
     async startReading(): Promise<void> {
         if (!this.ndef) throw new Error('NFC not available');
-        if (this.currentState !== 'inactive') {
-            await this.stop();
-        }
 
         try {
+            await this.requestPermission();
+
+            // Only setup reading listeners once
+            if (!this.readingSetup) {
+                this.ndef.addEventListener("reading", async ({ message }: any) => {
+                    try {
+                        await this.handleReceivedMessage(message);
+                    } catch (error) {
+                        this.emit('readingError', error as Error);
+                    }
+                });
+                this.readingSetup = true;
+            }
+
+            // Stop any existing scan
+            await this.stop();
+
+            // Start new scan
             this.abortController = new AbortController();
             await this.ndef.scan({ signal: this.abortController.signal });
-
-            this.ndef.addEventListener("reading", async ({ message }: any) => {
-                try {
-                    await this.handleReceivedMessage(message);
-                } catch (error) {
-                    this.emit('readingError', error as Error);
-                }
-            });
-
             this.updateState('reading');
         } catch (error) {
             this.updateState('inactive');
@@ -82,21 +102,24 @@ export class NFCService {
         if (!this.ndef) throw new Error('NFC not available');
 
         try {
+            await this.requestPermission();
             this.updateState('writing');
             const message = this.encodeToken(token);
+
+            // Write with correct NDEF record format
             await this.ndef.write({
                 records: [{
-                    recordType: "text",
-                    data: message,
-                    mediaType: "application/json"
+                    recordType: "mime",
+                    mediaType: "application/json",
+                    data: new TextEncoder().encode(message)
                 }]
             });
+
             this.emit('tokenSent', token);
         } catch (error) {
             console.error('Error sending token via NFC:', error);
             throw error;
         } finally {
-            // Return to previous state or inactive
             this.updateState('inactive');
         }
     }
@@ -107,10 +130,11 @@ export class NFCService {
 
     private async handleReceivedMessage(message: any): Promise<void> {
         for (const record of message.records) {
-            if (record.recordType === "text" && record.mediaType === "application/json") {
+            if (record.mediaType === "application/json") {
                 try {
-                    const tokenData = JSON.parse(record.data);
-                    // Basic validation that the data is an OfflineToken
+                    const decoder = new TextDecoder();
+                    const jsonString = decoder.decode(record.data);
+                    const tokenData = JSON.parse(jsonString);
                     if (this.validateTokenData(tokenData)) {
                         this.emit('tokenReceived', tokenData);
                     }
