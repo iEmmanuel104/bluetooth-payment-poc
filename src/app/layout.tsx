@@ -14,15 +14,16 @@ const geistMono = Geist_Mono({
     subsets: ["latin"],
 });
 
+export const viewport = {
+    width: "device-width",
+    initialScale: 1,
+    maximumScale: 1,
+};
+
 export const metadata: Metadata = {
     title: "Offline Payment App",
     description: "Offline-first payment system using Bluetooth and NFC",
     manifest: "/manifest",
-    viewport: {
-        width: "device-width",
-        initialScale: 1,
-        maximumScale: 1,
-    },
     appleWebApp: {
         capable: true,
         statusBarStyle: "default",
@@ -31,7 +32,6 @@ export const metadata: Metadata = {
     formatDetection: {
         telephone: false,
     },
-    themeColor: "#FFFFFF",
     other: {
         "permissions-policy": "nfc=*, bluetooth=*",
     },
