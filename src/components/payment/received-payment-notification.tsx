@@ -2,34 +2,52 @@
 import { useEffect } from "react";
 import { useToast } from "@/components/ui/use-toast";
 import { useBluetoothService } from "@/lib/hooks/use-bluetooth";
+import { useNFCService } from "@/lib/hooks/use-nfc";
 import { Token } from "@/types";
 
 export function ReceivedPaymentNotification() {
     const { toast } = useToast();
     const { bluetoothService } = useBluetoothService();
+    const { nfcService } = useNFCService();
 
     useEffect(() => {
-        if (!bluetoothService) return;
-
         const handlePaymentReceived = (token: Token) => {
             toast({
                 title: "Payment Received!",
                 description: `Amount: ${token.amount}`,
                 variant: "default",
             });
+        };
 
-            // Acknowledge receipt
-            bluetoothService.acknowledgePayment(token).catch((error) => {
-                console.error("Error acknowledging payment:", error);
+        const handleDeviceDetected = (device: any) => {
+            toast({
+                title: "Device Detected",
+                description: "Ready to transfer payment",
+                variant: "default",
             });
         };
 
-        bluetoothService.on("paymentReceived", handlePaymentReceived);
+        // Set up bluetooth listeners
+        if (bluetoothService) {
+            bluetoothService.on("paymentReceived", handlePaymentReceived);
+        }
+
+        // Set up NFC listeners
+        if (nfcService) {
+            nfcService.on("paymentReceived", handlePaymentReceived);
+            nfcService.on("deviceDetected", handleDeviceDetected);
+        }
 
         return () => {
-            bluetoothService.off("paymentReceived", handlePaymentReceived);
+            if (bluetoothService) {
+                bluetoothService.off("paymentReceived", handlePaymentReceived);
+            }
+            if (nfcService) {
+                nfcService.off("paymentReceived", handlePaymentReceived);
+                nfcService.off("deviceDetected", handleDeviceDetected);
+            }
         };
-    }, [bluetoothService, toast]);
+    }, [bluetoothService, nfcService, toast]);
 
     return null;
 }
