@@ -17,7 +17,7 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
     title: "Offline Payment App",
     description: "Offline-first payment system using Bluetooth and NFC",
-    manifest: "/manifest.json",
+    manifest: "/manifest",
     viewport: {
         width: "device-width",
         initialScale: 1,

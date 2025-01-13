@@ -8,7 +8,6 @@ const nextConfig = {
                 source: '/:path*',
                 headers: [
                     {
-                        // Updated Permissions-Policy with more specific NFC permissions
                         key: 'Permissions-Policy',
                         value: 'nfc=*, bluetooth=*, web-nfc=self'
                     },
@@ -17,17 +16,14 @@ const nextConfig = {
                         value: process.env.NEXT_PUBLIC_ORIGIN_TRIAL_TOKEN || ''
                     },
                     {
-                        // Add Cross-Origin-Opener-Policy for better security
                         key: 'Cross-Origin-Opener-Policy',
                         value: 'same-origin'
                     },
                     {
-                        // Add Cross-Origin-Embedder-Policy for better security
                         key: 'Cross-Origin-Embedder-Policy',
                         value: 'require-corp'
                     },
                     {
-                        // Feature Policy for NFC
                         key: 'Feature-Policy',
                         value: 'nfc *; bluetooth *'
                     }
@@ -36,24 +32,22 @@ const nextConfig = {
         ];
     },
 
-    // Update experimental features configuration
     experimental: {
         urlImports: {
-            // Specify allowed URL patterns for imports
             allowedUris: [
                 'https://*.cdnjs.cloudflare.com/**',
                 'https://*.unpkg.com/**'
             ]
-        },
-        // Add modern features support
-        webVitals: true,
-        optimizeFonts: true,
-        scrollRestoration: true
+        }
     },
 
     // Add security headers
     async rewrites() {
         return [
+            {
+                source: '/manifest',
+                destination: '/manifest.json'
+            },
             {
                 source: '/nfc-handler',
                 destination: '/api/nfc-handler'
@@ -61,17 +55,34 @@ const nextConfig = {
         ];
     },
 
-    // PWA optimization
     webpack: (config: import('webpack').Configuration, { dev, isServer }: { dev: boolean; isServer: boolean }) => {
-        // Add support for Web NFC in development
-        if (dev && !isServer) {
-            config.resolve = config.resolve || {};
-            config.resolve.fallback = {
-                ...config.resolve.fallback,
-                crypto: require.resolve('crypto-browserify'),
-                stream: require.resolve('stream-browserify'),
-                buffer: require.resolve('buffer/')
-            };
+        if (!isServer) {
+            // Service Worker compilation
+            if (config.module && config.module.rules) {
+                config.module.rules.push({
+                    test: /service-worker\.ts$/,
+                    use: {
+                        loader: 'ts-loader',
+                        options: {
+                            compilerOptions: {
+                                lib: ['webworker', 'es2015'],
+                                module: 'commonjs',
+                            },
+                        },
+                    },
+                });
+            }
+
+            // Add support for Web NFC in development
+            if (dev) {
+                config.resolve = config.resolve || {};
+                config.resolve.fallback = {
+                    ...config.resolve.fallback,
+                    crypto: require.resolve('crypto-browserify'),
+                    stream: require.resolve('stream-browserify'),
+                    buffer: require.resolve('buffer/')
+                };
+            }
         }
         return config;
     },
@@ -81,15 +92,6 @@ const nextConfig = {
         NEXT_PUBLIC_NFC_ENABLED: 'true',
         NEXT_PUBLIC_APP_MODE: process.env.NODE_ENV
     },
-
-    // Progressive Web App configuration
-    pwa: {
-        dest: 'public',
-        disable: process.env.NODE_ENV === 'development',
-        register: true,
-        scope: '/',
-        sw: 'service-worker.js',
-    }
 };
 
 export default nextConfig;
