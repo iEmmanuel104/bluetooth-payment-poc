@@ -11,163 +11,100 @@ interface NFCEventMap {
     tokenSent: OfflineToken;
     stateChange: NFCState;
     permissionNeeded: void;
-    deviceDetected: { status: string };
+    deviceDetected: { status: string; serialNumber?: string };
 }
 
 const isBrowser = typeof window !== 'undefined';
 
 export class NFCService {
-    private ndef: any;
+    private reader: any;
     private currentState: NFCState = 'inactive';
     private listeners: Map<NFCEventType, Set<(data: any) => void>> = new Map();
     private abortController: AbortController | null = null;
-    private readingSetup = false;
+    private isReading = false;
 
     constructor() {
         if (isBrowser && 'NDEFReader' in window) {
-            this.initializeNFC();
-        }
-    }
-
-    private async initializeNFC() {
-        if (!isBrowser) return;
-
-        try {
-            this.ndef = new (window as any).NDEFReader();
-
-            // Register for Android intent handling
-            if ('launchQueue' in window) {
-                (window as any).launchQueue.setConsumer(async (launchParams: any) => {
-                    if (launchParams.targetURL) {
-                        console.log('Launched from NFC:', launchParams.targetURL);
-                    }
-                });
-            }
-
-            await this.setupReadingListener();
-        } catch (error) {
-            console.error('Failed to initialize NFC:', error);
-        }
-    }
-
-    private async setupReadingListener() {
-        if (!isBrowser || !this.ndef || this.readingSetup) return;
-
-        try {
-            // Add reading listener with proper error handling
-            this.ndef.addEventListener("reading", async ({ message, serialNumber }: any) => {
-                console.log('NFC Device detected!', { serialNumber });
-                this.emit('deviceDetected', { status: 'Device detected' });
-
-                if (!message || !message.records) {
-                    console.warn('No readable message found');
-                    return;
-                }
-
-                try {
-                    await this.handleReceivedMessage(message);
-                } catch (error) {
-                    console.error('NFC Reading Error:', error);
-                    this.emit('readingError', new Error('Failed to process NFC message'));
-                }
-            });
-
-            // Handle reading errors more gracefully
-            this.ndef.addEventListener("readingerror", (event: any) => {
-                const errorDetails = event?.error || 'Unknown reading error';
-                console.warn('NFC Reading Error Event:', errorDetails);
-
-                if (errorDetails?.name === 'NotFoundError') {
-                    console.log('Tag moved away too quickly');
-                    return;
-                }
-
-                this.emit('readingError', new Error('Failed to read NFC tag: ' + errorDetails?.message));
-            });
-
-            // Set up scanning with more options
-            await this.ndef.scan({
-                keepReading: true,
-                signal: this.abortController?.signal
-            });
-
-            this.readingSetup = true;
-            console.log('NFC reading listener setup complete');
-        } catch (error) {
-            console.error('Error setting up NFC reading listener:', error);
-            throw error;
+            this.reader = new (window as any).NDEFReader();
         }
     }
 
     async checkAvailability(): Promise<{ available: boolean; enabled: boolean }> {
-        if (!isBrowser) {
-            return { available: false, enabled: false };
-        }
-
-        const hasNFC = 'NDEFReader' in window;
-        if (!hasNFC) {
+        if (!isBrowser || !this.reader) {
             return { available: false, enabled: false };
         }
 
         try {
-            await this.requestPermission();
-            await this.setupReadingListener();
-            return { available: true, enabled: true };
+            const permissionStatus = await this.requestPermission();
+            return {
+                available: true,
+                enabled: permissionStatus === 'granted'
+            };
         } catch (error) {
             console.error('NFC availability check error:', error);
             return { available: true, enabled: false };
         }
     }
 
-    private async requestPermission(): Promise<void> {
-        if (!isBrowser) return;
+    private async requestPermission(): Promise<PermissionState> {
+        if (!isBrowser || !('permissions' in navigator)) {
+            return 'denied';
+        }
 
-        if ('permissions' in navigator) {
-            try {
-                const result = await navigator.permissions.query({ name: 'nfc' as PermissionName });
+        try {
+            const result = await navigator.permissions.query({ name: 'nfc' as PermissionName });
 
-                switch (result.state) {
-                    case 'prompt':
-                        this.emit('permissionNeeded', undefined);
-                        break;
-                    case 'denied':
-                        throw new Error('NFC permission denied');
-                    case 'granted':
-                        if ('registerProtocolHandler' in navigator) {
-                            try {
-                                navigator.registerProtocolHandler(
-                                    'web+nfc',
-                                    `${window.location.origin}/?nfc=%s`
-                                );
-                            } catch (e) {
-                                console.warn('Failed to register protocol handler:', e);
-                            }
-                        }
-                        break;
-                }
-
-                result.addEventListener('change', () => {
-                    if (result.state === 'denied') {
-                        this.updateState('inactive');
-                        this.emit('readingError', new Error('NFC permission denied'));
-                    }
-                });
-            } catch (error) {
-                console.error('Permission query error:', error);
-                throw error;
+            if (result.state === 'prompt') {
+                this.emit('permissionNeeded', undefined);
             }
+
+            result.addEventListener('change', () => {
+                if (result.state === 'denied') {
+                    this.updateState('inactive');
+                    this.emit('readingError', new Error('NFC permission denied'));
+                }
+            });
+
+            return result.state;
+        } catch (error) {
+            console.error('Permission query error:', error);
+            throw error;
         }
     }
 
     async startReading(): Promise<void> {
-        if (!this.ndef) throw new Error('NFC not available');
+        if (!this.reader) throw new Error('NFC not available');
+        if (this.isReading) return;
 
         try {
-            await this.requestPermission();
-            await this.setupReadingListener();
+            const permissionStatus = await this.requestPermission();
+            if (permissionStatus !== 'granted') {
+                throw new Error('NFC permission not granted');
+            }
+
+            this.abortController = new AbortController();
+
+            // Set up reading event listeners
+            this.reader.addEventListener("reading", ({ message, serialNumber }: any) => {
+                this.emit('deviceDetected', { status: 'Device detected', serialNumber });
+
+                if (message?.records) {
+                    this.handleReceivedMessage(message);
+                }
+            });
+
+            this.reader.addEventListener("readingerror", () => {
+                this.emit('readingError', new Error('Failed to read NFC tag'));
+            });
+
+            // Start scanning
+            await this.reader.scan({ signal: this.abortController.signal });
+            this.isReading = true;
             this.updateState('reading');
+
         } catch (error) {
             this.updateState('inactive');
+            this.isReading = false;
             throw error;
         }
     }
@@ -177,88 +114,70 @@ export class NFCService {
             this.abortController.abort();
             this.abortController = null;
         }
+        this.isReading = false;
         this.updateState('inactive');
     }
 
     async sendToken(token: OfflineToken): Promise<void> {
-        if (!this.ndef) throw new Error('NFC not available');
+        if (!this.reader) throw new Error('NFC not available');
 
         try {
-            await this.requestPermission();
-            this.updateState('writing');
-
-            const message = this.encodeToken(token);
-            const encoder = new TextEncoder();
-            const tokenData = encoder.encode(message);
-
-            // Try writing with both record types
-            try {
-                await this.ndef.write({
-                    records: [
-                        {
-                            recordType: "mime",
-                            mediaType: "application/json",
-                            data: tokenData
-                        },
-                        // Fallback text record
-                        {
-                            recordType: "text",
-                            data: message
-                        }
-                    ]
-                });
-            } catch (writeError) {
-                console.warn('Failed first write attempt, trying alternative format:', writeError);
-                // Fallback to simpler format if first attempt fails
-                await this.ndef.write({
-                    records: [
-                        {
-                            recordType: "text",
-                            data: message
-                        }
-                    ]
-                });
+            const permissionStatus = await this.requestPermission();
+            if (permissionStatus !== 'granted') {
+                throw new Error('NFC permission not granted');
             }
 
-            console.log('Token sent successfully:', token);
+            this.updateState('writing');
+
+            const tokenData = {
+                ...token,
+                timestamp: Date.now(),
+                type: 'payment_token'
+            };
+
+            // Create NDEF message with both JSON and text fallback
+            const message = {
+                records: [
+                    {
+                        recordType: "mime",
+                        mediaType: "application/json",
+                        data: JSON.stringify(tokenData)
+                    },
+                    {
+                        recordType: "text",
+                        data: JSON.stringify(tokenData)
+                    }
+                ]
+            };
+
+            await this.reader.write(message);
             this.emit('tokenSent', token);
+            console.log('Token sent successfully:', token);
+
         } catch (error) {
             console.error('Error sending token via NFC:', error);
             throw error;
         } finally {
-            await this.startReading(); // Restart reading mode
+            // Resume reading mode after write
+            this.updateState('reading');
+            if (!this.isReading) {
+                await this.startReading();
+            }
         }
     }
 
-    private encodeToken(token: OfflineToken): string {
-        const tokenData = {
-            ...token,
-            timestamp: Date.now(),
-            type: 'payment_token'
-        };
-        console.log('Encoding token:', tokenData);
-        return JSON.stringify(tokenData);
-    }
-
     private async handleReceivedMessage(message: any): Promise<void> {
-        console.log('Raw NFC message received:', message);
-
         for (const record of message.records) {
             try {
                 let tokenData: any = null;
 
                 if (record.mediaType === "application/json") {
-                    const decoder = new TextDecoder();
-                    const jsonString = decoder.decode(record.data);
-                    console.log('Decoded JSON:', jsonString);
-                    tokenData = JSON.parse(jsonString);
+                    tokenData = JSON.parse(record.data);
                 } else if (record.recordType === "text") {
-                    // Handle text records as fallback
                     tokenData = JSON.parse(record.data);
                 }
 
                 if (tokenData && this.validateTokenData(tokenData)) {
-                    console.log('Valid token received:', tokenData);
                     this.emit('tokenReceived', tokenData);
                     return;
                 }
@@ -266,29 +185,20 @@ export class NFCService {
                 console.error('Error processing record:', error);
             }
         }
-
-        console.warn('No valid token data found in message');
     }
 
     private validateTokenData(data: any): data is OfflineToken {
-        const isValid = (
+        return (
             typeof data === 'object' &&
             data !== null &&
             typeof data.amount === 'string' &&
             typeof data.contractAddress === 'string' &&
             data.type === 'payment_token'
         );
-
-        if (!isValid) {
-            console.warn('Invalid token data:', data);
-        }
-
-        return isValid;
     }
 
     private updateState(newState: NFCState): void {
         if (this.currentState !== newState) {
-            console.log('NFC state change:', this.currentState, '->', newState);
             this.currentState = newState;
             this.emit('stateChange', newState);
         }

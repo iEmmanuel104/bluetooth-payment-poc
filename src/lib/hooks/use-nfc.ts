@@ -1,11 +1,10 @@
 // src/lib/hooks/use-nfc.ts
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { NFCService } from '../nfc/service';
 import { OfflineToken } from '../blockchain/types';
 import { useToast } from '@/components/ui/use-toast';
 
 let nfcServiceInstance: NFCService | null = null;
-
 const isBrowser = typeof window !== 'undefined';
 
 export function useNFCService() {
@@ -16,28 +15,30 @@ export function useNFCService() {
     const checkingRef = useRef(false);
     const { toast } = useToast();
 
-    // Create or get the singleton instance only in browser environment
+    // Initialize service
     useEffect(() => {
         if (isBrowser && !nfcServiceInstance) {
             nfcServiceInstance = new NFCService();
         }
     }, []);
 
+    // Check NFC status
+    const checkNFCStatus = useCallback(async () => {
+        if (!nfcServiceInstance || checkingRef.current) return;
+
+        checkingRef.current = true;
+        try {
+            const status = await nfcServiceInstance.checkAvailability();
+            setIsEnabled(status.enabled);
+            setIsReady(status.available && status.enabled);
+        } finally {
+            checkingRef.current = false;
+        }
+    }, []);
+
+    // Setup event listeners
     useEffect(() => {
-        if (!isBrowser) return;
-
-        const checkNFCStatus = async () => {
-            if (!nfcServiceInstance || checkingRef.current) return;
-
-            checkingRef.current = true;
-            try {
-                const status = await nfcServiceInstance.checkAvailability();
-                setIsEnabled(status.enabled);
-                setIsReady(status.available && status.enabled);
-            } finally {
-                checkingRef.current = false;
-            }
-        };
+        if (!isBrowser || !nfcServiceInstance) return;
 
         const onStateChange = (newState: 'inactive' | 'reading' | 'writing') => {
             setState(newState);
@@ -51,35 +52,43 @@ export function useNFCService() {
             });
         };
 
-        const onDeviceDetected = () => {
+        const onDeviceDetected = ({ serialNumber }: { serialNumber?: string }) => {
             setDeviceDetected(true);
             toast({
                 title: "NFC Device Detected",
-                description: "Device is ready for payment transfer",
+                description: serialNumber
+                    ? `Device connected (ID: ${serialNumber})`
+                    : "Device is ready for payment transfer",
                 duration: 3000,
             });
 
-            // Reset device detected state after a delay
             setTimeout(() => setDeviceDetected(false), 3000);
         };
 
-        if (nfcServiceInstance) {
-            nfcServiceInstance.on('stateChange', onStateChange);
-            nfcServiceInstance.on('permissionNeeded', onPermissionNeeded);
-            nfcServiceInstance.on('deviceDetected', onDeviceDetected);
+        const onReadingError = (error: Error) => {
+            toast({
+                title: "NFC Error",
+                description: error.message || "Failed to read NFC device",
+                variant: "destructive",
+                duration: 5000,
+            });
+        };
 
-            // Initial check
-            checkNFCStatus();
-        }
+        nfcServiceInstance.on('stateChange', onStateChange);
+        nfcServiceInstance.on('permissionNeeded', onPermissionNeeded);
+        nfcServiceInstance.on('deviceDetected', onDeviceDetected);
+        nfcServiceInstance.on('readingError', onReadingError);
+
+        // Initial check
+        checkNFCStatus();
 
         return () => {
-            if (nfcServiceInstance) {
-                nfcServiceInstance.off('stateChange', onStateChange);
-                nfcServiceInstance.off('permissionNeeded', onPermissionNeeded);
-                nfcServiceInstance.off('deviceDetected', onDeviceDetected);
-            }
+            nfcServiceInstance?.off('stateChange', onStateChange);
+            nfcServiceInstance?.off('permissionNeeded', onPermissionNeeded);
+            nfcServiceInstance?.off('deviceDetected', onDeviceDetected);
+            nfcServiceInstance?.off('readingError', onReadingError);
         };
-    }, [toast]);
+    }, [toast, checkNFCStatus]);
 
     const startReading = async () => {
         if (!isBrowser) return;
@@ -87,10 +96,9 @@ export function useNFCService() {
         try {
             await nfcServiceInstance?.startReading();
         } catch (error) {
-            console.error('Failed to start NFC reading:', error);
             toast({
                 title: "NFC Error",
-                description: "Failed to start NFC reading. Please ensure NFC is enabled on your device.",
+                description: (error instanceof Error ? error.message : "Unknown error") || "Failed to start NFC reading. Please ensure NFC is enabled.",
                 variant: "destructive",
             });
             throw error;
@@ -117,16 +125,44 @@ export function useNFCService() {
 
         try {
             await nfcServiceInstance?.sendToken(token);
-        } catch (error) {
-            console.error('Failed to send token via NFC:', error);
             toast({
-                title: "NFC Error",
-                description: "Failed to send payment. Please ensure devices are close together and try again.",
-                variant: "destructive",
+                title: "Success",
+                description: "Payment token sent successfully",
+                duration: 3000,
             });
+        } catch (error) {
+            if (error instanceof Error) {
+                toast({
+                    title: "Transfer Failed",
+                    description: error.message || "Failed to send payment. Please try again.",
+                    variant: "destructive",
+                });
+            } else {
+                toast({
+                    title: "Transfer Failed",
+                    description: "Failed to send payment. Please try again.",
+                    variant: "destructive",
+                });
+            }
             throw error;
         }
     };
+
+    const onTokenReceived = useCallback((callback: (token: OfflineToken) => void) => {
+        if (!isBrowser) return () => { };
+
+        const wrappedCallback = (token: OfflineToken) => {
+            toast({
+                title: "Payment Received",
+                description: `Received payment token for ${token.amount}`,
+                duration: 3000,
+            });
+            callback(token);
+        };
+
+        nfcServiceInstance?.on('tokenReceived', wrappedCallback);
+        return () => nfcServiceInstance?.off('tokenReceived', wrappedCallback);
+    }, [toast]);
 
     return {
         isEnabled,
@@ -136,11 +172,6 @@ export function useNFCService() {
         startReading,
         stop,
         sendToken,
-        onTokenReceived: (callback: (token: OfflineToken) => void) => {
-            if (!isBrowser) return () => { };
-
-            nfcServiceInstance?.on('tokenReceived', callback);
-            return () => nfcServiceInstance?.off('tokenReceived', callback);
-        }
+        onTokenReceived
     };
 }
