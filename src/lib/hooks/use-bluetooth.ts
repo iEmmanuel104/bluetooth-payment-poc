@@ -22,6 +22,8 @@ export function useBluetoothService() {
         // Create or get the singleton instance only on the client side
         if (!bluetoothServiceInstance) {
             bluetoothServiceInstance = new BluetoothService();
+            // Automatically start as emitter if no role is set
+            bluetoothServiceInstance.startAsEmitter().catch(console.error);
         }
 
         const onConnectionChange = (connected: boolean) => {
@@ -36,8 +38,6 @@ export function useBluetoothService() {
 
         bluetoothServiceInstance.on('connectionChange', onConnectionChange);
         bluetoothServiceInstance.on('roleChange', onRoleChange);
-
-        // No need to restore previous state since we're not using localStorage
 
         return () => {
             if (bluetoothServiceInstance) {

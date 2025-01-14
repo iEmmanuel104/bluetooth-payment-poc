@@ -29,6 +29,8 @@ export function DeviceList() {
 
     const { isConnected, currentRole, bluetoothService} = useBluetoothService();
 
+    console.log(currentRole)
+
     const { toast } = useToast();
 
     useEffect(() => {
