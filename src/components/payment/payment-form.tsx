@@ -25,7 +25,7 @@ export function PaymentForm({ isConnected, communicationType }: PaymentFormProps
     const [isSending, setIsSending] = useState(false);
     const { toast } = useToast();
     const { wallet, createTransfer } = useWallet();
-    const { bluetoothService } = useBluetoothService();
+    const { bluetoothService, currentRole } = useBluetoothService();
     const { isReady: isNFCReady, state: nfcState, deviceDetected, sendToken: sendNFCToken, startReading, stop } = useNFCService();
 
     // Calculate percentage of balance being sent
@@ -53,12 +53,61 @@ export function PaymentForm({ isConnected, communicationType }: PaymentFormProps
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (!amount || (!isConnected && communicationType === CommunicationType.BLUETOOTH)) return;
 
+        // Validate Bluetooth connection when in Bluetooth mode
+        if (communicationType === CommunicationType.BLUETOOTH) {
+            if (!bluetoothService) {
+                toast({
+                    title: "Bluetooth Error",
+                    description: "Bluetooth service not available",
+                    variant: "destructive",
+                });
+                return;
+            }
+
+            if (!isConnected) {
+                toast({
+                    title: "Not Connected",
+                    description: "Please connect to a device before sending payment",
+                    variant: "destructive",
+                });
+                return;
+            }
+
+            if (currentRole !== "emitter") {
+                toast({
+                    title: "Invalid Role",
+                    description: "Must be in sender mode to send payments",
+                    variant: "destructive",
+                });
+                return;
+            }
+        }
+
+        // Validate NFC when in NFC mode
         if (communicationType === CommunicationType.NFC && !isNFCReady) {
             toast({
                 title: "NFC Not Available",
                 description: "Please enable NFC on your device",
+                variant: "destructive",
+            });
+            return;
+        }
+
+        // Validate amount
+        if (!amount || BigInt(amount) <= BigInt(0)) {
+            toast({
+                title: "Invalid Amount",
+                description: "Please enter a valid amount",
+                variant: "destructive",
+            });
+            return;
+        }
+
+        if (BigInt(amount) > BigInt(wallet.balance)) {
+            toast({
+                title: "Insufficient Balance",
+                description: "You don't have enough tokens",
                 variant: "destructive",
             });
             return;
@@ -75,6 +124,10 @@ export function PaymentForm({ isConnected, communicationType }: PaymentFormProps
                 });
                 await sendNFCToken(token);
             } else if (bluetoothService) {
+                toast({
+                    title: "Sending Payment",
+                    description: "Transferring tokens via Bluetooth...",
+                });
                 await bluetoothService.sendToken(token);
             }
 
@@ -96,11 +149,21 @@ export function PaymentForm({ isConnected, communicationType }: PaymentFormProps
     };
 
     const isDisabled = () => {
+        // Only disable if actively sending
         if (isSending) return true;
-        if (!amount) return true;
-        if (BigInt(amount) > BigInt(wallet.balance)) return true;
-        if (communicationType === CommunicationType.BLUETOOTH && !isConnected) return true;
-        if (communicationType === CommunicationType.NFC && !isNFCReady) return true;
+
+        if (communicationType === CommunicationType.BLUETOOTH) {
+            // For Bluetooth, only disable if there's no service or not connected
+            if (!bluetoothService) return true;
+            if (!isConnected) return true;
+            // Make sure we're in emitter mode
+            if (currentRole !== "emitter") return true;
+        }
+
+        if (communicationType === CommunicationType.NFC) {
+            return !isNFCReady;
+        }
+
         return false;
     };
 
@@ -114,6 +177,7 @@ export function PaymentForm({ isConnected, communicationType }: PaymentFormProps
                             <>
                                 <Bluetooth className={`h-4 w-4 ${isConnected ? "text-green-500" : ""}`} />
                                 <span className="text-sm">Bluetooth</span>
+                                {isConnected && <span className="text-xs bg-green-100 text-green-800 px-2 py-1 rounded-full">Connected</span>}
                             </>
                         ) : (
                             <>
@@ -133,6 +197,13 @@ export function PaymentForm({ isConnected, communicationType }: PaymentFormProps
                 </div>
             </CardHeader>
             <CardContent>
+                {communicationType === CommunicationType.BLUETOOTH && !isConnected && (
+                    <Alert className="mb-4">
+                        <Bluetooth className="h-4 w-4" />
+                        <AlertDescription>Please connect to a receiver device before sending payment</AlertDescription>
+                    </Alert>
+                )}
+
                 {communicationType === CommunicationType.NFC && (
                     <>
                         {!isNFCReady && (

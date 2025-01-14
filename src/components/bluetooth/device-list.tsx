@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Loader2, Bluetooth, BluetoothOff, BluetoothSearching } from "lucide-react";
 import { useToast } from "@/components/ui/use-toast";
 import { PairingRole } from "@/types/bluetooth";
-import type { BluetoothDeviceInfo } from '@/types';
+import type { BluetoothDeviceInfo } from "@/types";
 import { BluetoothService } from "@/lib/bluetooth/service";
 import { useBluetoothService } from "@/lib/hooks/use-bluetooth";
 
@@ -27,9 +27,7 @@ export function DeviceList() {
     }>({ available: false, enabled: false });
     const [setupStatus, setSetupStatus] = useState<BluetoothSetupStatus | null>(null);
 
-    const { isConnected, currentRole, bluetoothService} = useBluetoothService();
-
-    console.log(currentRole)
+    const { isConnected, currentRole, bluetoothService } = useBluetoothService();
 
     const { toast } = useToast();
 
@@ -162,6 +160,8 @@ export function DeviceList() {
         );
     }
 
+    const shouldShowScanButton = bluetoothStatus.enabled && currentRole === PairingRole.EMITTER && !isConnected;
+
     return (
         <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -184,8 +184,8 @@ export function DeviceList() {
                                 : !bluetoothStatus.enabled
                                 ? "Bluetooth Disabled"
                                 : isConnected
-                                ? `Connected ${currentRole === "emitter" ? "to Receiver" : "with Sender"}`
-                                : currentRole === "receiver"
+                                ? `Connected ${currentRole === PairingRole.EMITTER ? "to Receiver" : "with Sender"}`
+                                : currentRole === PairingRole.RECEIVER
                                 ? "Waiting for Connection"
                                 : "Bluetooth Devices"}
                         </CardTitle>
@@ -196,21 +196,19 @@ export function DeviceList() {
                                 ? "Please enable Bluetooth on your device"
                                 : isConnected
                                 ? "Device is paired and ready"
-                                : currentRole === "receiver"
+                                : currentRole === PairingRole.RECEIVER
                                 ? "Waiting for sender to connect"
                                 : "Scan to discover nearby devices"}
                         </p>
                     </div>
                 </div>
-                {currentRole === PairingRole.EMITTER && bluetoothStatus.enabled && (
-                    <Button onClick={startScanning} disabled={isScanning || isConnected} variant="outline" size="sm">
+                {shouldShowScanButton && (
+                    <Button onClick={startScanning} disabled={isScanning} variant="outline" size="sm">
                         {isScanning ? (
                             <>
                                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                                 Scanning...
                             </>
-                        ) : isConnected ? (
-                            "Connected"
                         ) : (
                             "Scan for Devices"
                         )}
@@ -230,10 +228,7 @@ export function DeviceList() {
                             </div>
                         ) : (
                             devices.map((device) => (
-                                <div
-                                    key={device.id}
-                                    className="flex items-center justify-between p-3 border rounded-lg transition-colors"
-                                >
+                                <div key={device.id} className="flex items-center justify-between p-3 border rounded-lg transition-colors">
                                     <div className="flex items-center space-x-3">
                                         <Bluetooth className="h-4 w-4 text-blue-500" />
                                         <span>{device.name || "Unknown Device"}</span>

@@ -19,11 +19,9 @@ export function useBluetoothService() {
     useEffect(() => {
         if (!isClient) return;
 
-        // Create or get the singleton instance only on the client side
+        // Create the singleton instance only on the client side
         if (!bluetoothServiceInstance) {
             bluetoothServiceInstance = new BluetoothService();
-            // Automatically start as emitter if no role is set
-            bluetoothServiceInstance.startAsEmitter().catch(console.error);
         }
 
         const onConnectionChange = (connected: boolean) => {
@@ -35,6 +33,11 @@ export function useBluetoothService() {
             console.log('Role changed:', role);
             setCurrentRole(role);
         };
+
+        // Set initial role from service
+        if (bluetoothServiceInstance) {
+            setCurrentRole(bluetoothServiceInstance.getCurrentRole());
+        }
 
         bluetoothServiceInstance.on('connectionChange', onConnectionChange);
         bluetoothServiceInstance.on('roleChange', onRoleChange);
