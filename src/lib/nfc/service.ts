@@ -14,6 +14,8 @@ interface NFCEventMap {
     deviceDetected: { status: string };
 }
 
+const isBrowser = typeof window !== 'undefined';
+
 export class NFCService {
     private ndef: any;
     private currentState: NFCState = 'inactive';
@@ -22,12 +24,14 @@ export class NFCService {
     private readingSetup = false;
 
     constructor() {
-        if ('NDEFReader' in window) {
+        if (isBrowser && 'NDEFReader' in window) {
             this.initializeNFC();
         }
     }
 
     private async initializeNFC() {
+        if (!isBrowser) return;
+
         try {
             this.ndef = new (window as any).NDEFReader();
 
@@ -47,56 +51,59 @@ export class NFCService {
     }
 
     private async setupReadingListener() {
-        if (!this.readingSetup && this.ndef) {
-            try {
-                // Add reading listener with proper error handling
-                this.ndef.addEventListener("reading", async ({ message, serialNumber }: any) => {
-                    console.log('NFC Device detected!', { serialNumber });
-                    this.emit('deviceDetected', { status: 'Device detected' });
+        if (!isBrowser || !this.ndef || this.readingSetup) return;
 
-                    if (!message || !message.records) {
-                        console.warn('No readable message found');
-                        return;
-                    }
+        try {
+            // Add reading listener with proper error handling
+            this.ndef.addEventListener("reading", async ({ message, serialNumber }: any) => {
+                console.log('NFC Device detected!', { serialNumber });
+                this.emit('deviceDetected', { status: 'Device detected' });
 
-                    try {
-                        await this.handleReceivedMessage(message);
-                    } catch (error) {
-                        console.error('NFC Reading Error:', error);
-                        this.emit('readingError', new Error('Failed to process NFC message'));
-                    }
-                });
+                if (!message || !message.records) {
+                    console.warn('No readable message found');
+                    return;
+                }
 
-                // Handle reading errors more gracefully
-                this.ndef.addEventListener("readingerror", (event: any) => {
-                    const errorDetails = event?.error || 'Unknown reading error';
-                    console.warn('NFC Reading Error Event:', errorDetails);
+                try {
+                    await this.handleReceivedMessage(message);
+                } catch (error) {
+                    console.error('NFC Reading Error:', error);
+                    this.emit('readingError', new Error('Failed to process NFC message'));
+                }
+            });
 
-                    // Don't throw error for common reading issues
-                    if (errorDetails?.name === 'NotFoundError') {
-                        console.log('Tag moved away too quickly');
-                        return;
-                    }
+            // Handle reading errors more gracefully
+            this.ndef.addEventListener("readingerror", (event: any) => {
+                const errorDetails = event?.error || 'Unknown reading error';
+                console.warn('NFC Reading Error Event:', errorDetails);
 
-                    this.emit('readingError', new Error('Failed to read NFC tag: ' + errorDetails?.message));
-                });
+                if (errorDetails?.name === 'NotFoundError') {
+                    console.log('Tag moved away too quickly');
+                    return;
+                }
 
-                // Set up scanning with more options
-                await this.ndef.scan({
-                    keepReading: true,
-                    signal: this.abortController?.signal
-                });
+                this.emit('readingError', new Error('Failed to read NFC tag: ' + errorDetails?.message));
+            });
 
-                this.readingSetup = true;
-                console.log('NFC reading listener setup complete');
-            } catch (error) {
-                console.error('Error setting up NFC reading listener:', error);
-                throw error;
-            }
+            // Set up scanning with more options
+            await this.ndef.scan({
+                keepReading: true,
+                signal: this.abortController?.signal
+            });
+
+            this.readingSetup = true;
+            console.log('NFC reading listener setup complete');
+        } catch (error) {
+            console.error('Error setting up NFC reading listener:', error);
+            throw error;
         }
     }
 
     async checkAvailability(): Promise<{ available: boolean; enabled: boolean }> {
+        if (!isBrowser) {
+            return { available: false, enabled: false };
+        }
+
         const hasNFC = 'NDEFReader' in window;
         if (!hasNFC) {
             return { available: false, enabled: false };
@@ -113,11 +120,12 @@ export class NFCService {
     }
 
     private async requestPermission(): Promise<void> {
+        if (!isBrowser) return;
+
         if ('permissions' in navigator) {
             try {
                 const result = await navigator.permissions.query({ name: 'nfc' as PermissionName });
 
-                // Handle permission states
                 switch (result.state) {
                     case 'prompt':
                         this.emit('permissionNeeded', undefined);
@@ -125,7 +133,6 @@ export class NFCService {
                     case 'denied':
                         throw new Error('NFC permission denied');
                     case 'granted':
-                        // Try to register the website for NFC
                         if ('registerProtocolHandler' in navigator) {
                             try {
                                 navigator.registerProtocolHandler(
@@ -139,7 +146,6 @@ export class NFCService {
                         break;
                 }
 
-                // Listen for permission changes
                 result.addEventListener('change', () => {
                     if (result.state === 'denied') {
                         this.updateState('inactive');

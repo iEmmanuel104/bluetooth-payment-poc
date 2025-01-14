@@ -6,6 +6,8 @@ import { useToast } from '@/components/ui/use-toast';
 
 let nfcServiceInstance: NFCService | null = null;
 
+const isBrowser = typeof window !== 'undefined';
+
 export function useNFCService() {
     const [isEnabled, setIsEnabled] = useState(false);
     const [state, setState] = useState<'inactive' | 'reading' | 'writing'>('inactive');
@@ -14,12 +16,16 @@ export function useNFCService() {
     const checkingRef = useRef(false);
     const { toast } = useToast();
 
-    // Create or get the singleton instance
-    if (!nfcServiceInstance) {
-        nfcServiceInstance = new NFCService();
-    }
+    // Create or get the singleton instance only in browser environment
+    useEffect(() => {
+        if (isBrowser && !nfcServiceInstance) {
+            nfcServiceInstance = new NFCService();
+        }
+    }, []);
 
     useEffect(() => {
+        if (!isBrowser) return;
+
         const checkNFCStatus = async () => {
             if (!nfcServiceInstance || checkingRef.current) return;
 
@@ -57,12 +63,14 @@ export function useNFCService() {
             setTimeout(() => setDeviceDetected(false), 3000);
         };
 
-        nfcServiceInstance?.on('stateChange', onStateChange);
-        nfcServiceInstance?.on('permissionNeeded', onPermissionNeeded);
-        nfcServiceInstance?.on('deviceDetected', onDeviceDetected);
+        if (nfcServiceInstance) {
+            nfcServiceInstance.on('stateChange', onStateChange);
+            nfcServiceInstance.on('permissionNeeded', onPermissionNeeded);
+            nfcServiceInstance.on('deviceDetected', onDeviceDetected);
 
-        // Initial check
-        checkNFCStatus();
+            // Initial check
+            checkNFCStatus();
+        }
 
         return () => {
             if (nfcServiceInstance) {
@@ -74,6 +82,8 @@ export function useNFCService() {
     }, [toast]);
 
     const startReading = async () => {
+        if (!isBrowser) return;
+
         try {
             await nfcServiceInstance?.startReading();
         } catch (error) {
@@ -88,6 +98,8 @@ export function useNFCService() {
     };
 
     const stop = async () => {
+        if (!isBrowser) return;
+
         try {
             await nfcServiceInstance?.stop();
             setDeviceDetected(false);
@@ -98,9 +110,11 @@ export function useNFCService() {
     };
 
     const sendToken = async (token: OfflineToken) => {
+        if (!isBrowser) return;
         if (!isReady) {
             throw new Error('NFC is not ready');
         }
+
         try {
             await nfcServiceInstance?.sendToken(token);
         } catch (error) {
@@ -123,6 +137,8 @@ export function useNFCService() {
         stop,
         sendToken,
         onTokenReceived: (callback: (token: OfflineToken) => void) => {
+            if (!isBrowser) return () => { };
+
             nfcServiceInstance?.on('tokenReceived', callback);
             return () => nfcServiceInstance?.off('tokenReceived', callback);
         }
