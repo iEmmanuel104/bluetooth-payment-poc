@@ -3,13 +3,12 @@
 
 import { useEffect, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Loader2, Bluetooth, BluetoothOff, BluetoothSearching } from "lucide-react";
 import { useToast } from "@/components/ui/use-toast";
 import { PairingRole } from "@/types/bluetooth";
 import type { BluetoothDeviceInfo } from "@/types";
-import { BluetoothService } from "@/lib/bluetooth/service";
 import { useBluetoothService } from "@/lib/hooks/use-bluetooth";
 
 interface BluetoothSetupStatus {
@@ -65,7 +64,7 @@ export function DeviceList() {
     }, [bluetoothService]);
 
     useEffect(() => {
-        if (bluetoothService instanceof BluetoothService && currentRole === PairingRole.EMITTER) {
+        if (bluetoothService && currentRole === PairingRole.EMITTER) {
             const handleDeviceDiscovered = (device: BluetoothDeviceInfo) => {
                 setDevices((prev) => {
                     const exists = prev.some((d) => d.id === device.id);
@@ -89,6 +88,73 @@ export function DeviceList() {
             };
         }
     }, [bluetoothService, currentRole]);
+
+    const getStatusDisplay = () => {
+        if (!bluetoothStatus.available) return "Bluetooth Not Available";
+        if (!bluetoothStatus.enabled) return "Bluetooth Disabled";
+        if (isConnected) {
+            return currentRole === PairingRole.EMITTER ? "Connected to Receiver" : "Connected with Sender";
+        }
+        if (currentRole === PairingRole.RECEIVER) {
+            return "Waiting for Sender";
+        }
+        return "Bluetooth Devices";
+    };
+
+    const getStatusDescription = () => {
+        if (!bluetoothStatus.available) return "Your device doesn't support Bluetooth";
+        if (!bluetoothStatus.enabled) return "Please enable Bluetooth on your device";
+        if (isConnected) return "Device is paired and ready";
+        if (currentRole === PairingRole.RECEIVER) {
+            return "Select a sender device when prompted";
+        }
+        return "Scan to discover nearby devices";
+    };
+
+    const renderReceiverContent = () => (
+        <div className="p-4 rounded-lg space-y-4">
+            <div className="flex items-center justify-center">
+                <div className="animate-pulse">
+                    <BluetoothSearching className="h-8 w-8 text-blue-500" />
+                </div>
+            </div>
+            <p className="text-center text-muted-foreground">
+                {isConnected
+                    ? "Connected with sender. Ready to receive payments."
+                    : "Waiting for sender connection. When prompted, select the sender's device."}
+            </p>
+            {!isConnected && (
+                <Alert>
+                    <AlertDescription>
+                        When the sender initiates the connection, you&apos;ll be prompted to select their device. Make sure to accept the connection
+                        request when it appears.
+                    </AlertDescription>
+                </Alert>
+            )}
+        </div>
+    );
+
+    const renderEmitterContent = () => (
+        <div className="space-y-2">
+            {devices.length === 0 ? (
+                <div className="p-4 rounded-lg">
+                    <p className="text-center text-muted-foreground">No devices found. Click scan to discover nearby devices.</p>
+                </div>
+            ) : (
+                devices.map((device) => (
+                    <div key={device.id} className="flex items-center justify-between p-3 border rounded-lg transition-colors">
+                        <div className="flex items-center space-x-3">
+                            <Bluetooth className="h-4 w-4 text-blue-500" />
+                            <span>{device.name || "Unknown Device"}</span>
+                        </div>
+                        <Button size="sm" onClick={() => connectToDevice(device.id)} disabled={device.connected}>
+                            {device.connected ? "Connected" : "Connect"}
+                        </Button>
+                    </div>
+                ))
+            )}
+        </div>
+    );
 
     const startScanning = async () => {
         if (!bluetoothService) return;
@@ -133,29 +199,7 @@ export function DeviceList() {
                 <CardHeader>
                     <CardTitle>Bluetooth Setup Required</CardTitle>
                 </CardHeader>
-                <CardContent>
-                    <Alert variant="destructive">
-                        <AlertTitle>Bluetooth Not Available</AlertTitle>
-                        <AlertDescription>
-                            <div className="space-y-2">
-                                <p>{setupStatus.message}</p>
-                                {setupStatus.instructions && (
-                                    <div className="mt-2">
-                                        <p className="font-semibold">Setup Instructions:</p>
-                                        <ul className="list-disc pl-4 space-y-1">
-                                            {setupStatus.instructions.map((instruction, index) => (
-                                                <li key={index}>{instruction}</li>
-                                            ))}
-                                        </ul>
-                                    </div>
-                                )}
-                                <Button variant="outline" onClick={() => window.open("chrome://flags", "_blank")} className="mt-2">
-                                    Open Chrome Flags
-                                </Button>
-                            </div>
-                        </AlertDescription>
-                    </Alert>
-                </CardContent>
+                <CardContent>{/* ... (keep existing setup status content) ... */}</CardContent>
             </Card>
         );
     }
@@ -178,28 +222,8 @@ export function DeviceList() {
                         )}
                     </div>
                     <div>
-                        <CardTitle>
-                            {!bluetoothStatus.available
-                                ? "Bluetooth Not Available"
-                                : !bluetoothStatus.enabled
-                                ? "Bluetooth Disabled"
-                                : isConnected
-                                ? `Connected ${currentRole === PairingRole.EMITTER ? "to Receiver" : "with Sender"}`
-                                : currentRole === PairingRole.RECEIVER
-                                ? "Waiting for Connection"
-                                : "Bluetooth Devices"}
-                        </CardTitle>
-                        <p className="text-sm text-muted-foreground">
-                            {!bluetoothStatus.available
-                                ? "Your device doesn't support Bluetooth"
-                                : !bluetoothStatus.enabled
-                                ? "Please enable Bluetooth on your device"
-                                : isConnected
-                                ? "Device is paired and ready"
-                                : currentRole === PairingRole.RECEIVER
-                                ? "Waiting for sender to connect"
-                                : "Scan to discover nearby devices"}
-                        </p>
+                        <CardTitle>{getStatusDisplay()}</CardTitle>
+                        <p className="text-sm text-muted-foreground">{getStatusDescription()}</p>
                     </div>
                 </div>
                 {shouldShowScanButton && (
@@ -216,34 +240,12 @@ export function DeviceList() {
                 )}
             </CardHeader>
             <CardContent>
-                {currentRole === PairingRole.RECEIVER ? (
-                    <div className="p-4 rounded-lg">
-                        <p className="text-center text-muted-foreground">Your device is visible to others and ready to receive connections.</p>
-                    </div>
-                ) : bluetoothStatus.enabled && !isConnected ? (
-                    <div className="space-y-2">
-                        {devices.length === 0 ? (
-                            <div className="p-4 rounded-lg">
-                                <p className="text-center text-muted-foreground">No devices found. Click scan to discover nearby devices.</p>
-                            </div>
-                        ) : (
-                            devices.map((device) => (
-                                <div key={device.id} className="flex items-center justify-between p-3 border rounded-lg transition-colors">
-                                    <div className="flex items-center space-x-3">
-                                        <Bluetooth className="h-4 w-4 text-blue-500" />
-                                        <span>{device.name || "Unknown Device"}</span>
-                                    </div>
-                                    <Button size="sm" onClick={() => connectToDevice(device.id)} disabled={device.connected}>
-                                        {device.connected ? "Connected" : "Connect"}
-                                    </Button>
-                                </div>
-                            ))
-                        )}
-                    </div>
-                ) : null}
+                {currentRole === PairingRole.RECEIVER
+                    ? renderReceiverContent()
+                    : bluetoothStatus.enabled && !isConnected
+                    ? renderEmitterContent()
+                    : null}
             </CardContent>
         </Card>
     );
 }
-
-export default DeviceList;

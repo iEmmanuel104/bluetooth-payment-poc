@@ -21,10 +21,6 @@ export class BluetoothService {
     private advertising: boolean = false;
     private lastConnectedDeviceId: string | null = null;
 
-    constructor() {
-        // No localStorage initialization needed
-    }
-
     public async tryReconnect(): Promise<void> {
         if (this.lastConnectedDeviceId && this.currentRole === PairingRole.EMITTER) {
             try {
@@ -89,23 +85,43 @@ export class BluetoothService {
             if (!navigator.bluetooth) {
                 throw new Error('Bluetooth is not available');
             }
-            // Set a recognizable name for development
-            // Note: This is not supported in all browsers
-            if ('setName' in navigator.bluetooth) {
-                await (navigator.bluetooth as any).setName("BT-Pay-Receiver");
-            }
 
+            // Instead of trying to set up a GATT server (which isn't supported),
+            // we'll just set the role and emit the change
             this.currentRole = PairingRole.RECEIVER;
             this.advertising = true;
-
-            // Set up GATT server for incoming connections
-            // Note: Web Bluetooth API currently doesn't support peripheral mode
-            // This is a limitation of the current API
-
             this.emit('roleChange', PairingRole.RECEIVER);
 
-            // Set up notifications for incoming connections
+            // Request the device to make ourselves discoverable
+            const device = await navigator.bluetooth.requestDevice({
+                acceptAllDevices: true,
+                optionalServices: [
+                    PaymentProtocol.SERVICE_UUID
+                ]
+            });
+
+            if (!device) {
+                throw new Error('No device selected');
+            }
+
+            // Connect to the device
+            this.device = device;
+            const server = await device.gatt?.connect();
+            this.server = server ?? null;
+
+            if (!this.server) {
+                throw new Error('Failed to connect to GATT server');
+            }
+
+            // Set up payment receiver after connection
             await this.setupPaymentReceiver();
+
+            // Set up disconnection listener
+            device.addEventListener('gattserverdisconnected', () => {
+                this.handleDisconnection(device);
+            });
+
+            this.emit('connectionChange', true);
 
         } catch (error) {
             console.error('Error starting as receiver:', error);
@@ -133,7 +149,6 @@ export class BluetoothService {
             throw error;
         }
     }
-
 
     // Start scanning for devices
     async startScanning(): Promise<BluetoothDeviceInfo[]> {
@@ -180,16 +195,20 @@ export class BluetoothService {
 
     private async setupPaymentReceiver(): Promise<void> {
         if (!this.server) {
-            throw new Error('GATT Server not available for payment receiver setup');
+            throw new Error('Not connected to GATT server');
         }
+
         try {
+            // Get the payment service
             const service = await this.server.getPrimaryService(PaymentProtocol.SERVICE_UUID);
+
+            // Get the characteristic for receiving tokens
             const characteristic = await service.getCharacteristic(PaymentProtocol.TOKEN_CHAR_UUID);
 
-            // Start notifications
+            // Enable notifications to receive data
             await characteristic.startNotifications();
 
-            // Listen for value changes
+            // Listen for incoming data
             characteristic.addEventListener('characteristicvaluechanged', (event) => {
                 const value = (event.target as BluetoothRemoteGATTCharacteristic).value;
                 if (!value) return;
